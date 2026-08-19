@@ -1,0 +1,65 @@
+﻿import re
+
+
+IN_WORDS = [
+    "கொடுத்தார்",
+    "கொடுத்தார்கள்",
+    "தந்தார்",
+    "வந்தது",
+    "பெற்றேன்",
+    "பெற்றது",
+    "கிடைத்தது",
+]
+
+OUT_WORDS = [
+    "கொடுத்தேன்",
+    "கொடுத்த",
+    "கொடுக்க",
+    "தந்தேன்",
+    "வழங்கினேன்",
+    "செலவு",
+]
+
+
+def parse_command(text: str) -> dict:
+    direction = None
+
+    # OUT check first (more specific keywords win)
+    if any(word in text for word in OUT_WORDS):
+        direction = "OUT"
+    elif any(word in text for word in IN_WORDS):
+        direction = "IN"
+
+    # Cash amount
+    cash: float = 0
+    cash_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:ரூபாய்|ரூ\.?|rs\.?|rupees?)",
+        text,
+        re.IGNORECASE,
+    )
+    if cash_match:
+        cash = float(cash_match.group(1))
+
+    # Gold weight in grams
+    gold: float = 0
+    gold_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:கிராம்|கிராம|gram[s]?|g(?:\s|$))",
+        text,
+        re.IGNORECASE,
+    )
+    if gold_match:
+        gold = float(gold_match.group(1))
+
+    # Confidence: higher when both direction and an amount were found
+    has_amount = cash > 0 or gold > 0
+    confidence = 0.9 if (direction and has_amount) else (0.6 if direction else 0.3)
+
+    result = {
+        "personName": None,
+        "direction": direction,
+        "cashAmount": cash,
+        "goldWeight": gold,
+        "confidence": confidence,
+    }
+    print(f"[NLU] parsed: {result}")
+    return result

@@ -1,6 +1,10 @@
-/**
+﻿/**
  * @format
+ *
+ * react-native-get-random-values must be imported FIRST.
+ * It polyfills crypto.getRandomValues so uuid v14 works in React Native.
  */
+import 'react-native-get-random-values';
 
 import { AppRegistry } from 'react-native';
 import App from './App';
