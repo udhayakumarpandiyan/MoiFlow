@@ -5,36 +5,35 @@ import type { AuthState } from '../services/AuthService';
  *
  * Decision tree:
  * 1. Not registered → 'Registration'
- * 2. Registered + never set up any security → 'SecuritySetup'
- * 3. Registered + no active security method (disabled but has credentials) → 'MainTab'
- * 4. Registered + active security + session active → 'MainTab'
- * 5. Registered + pattern security + session inactive → 'PatternLock'
- * 6. Registered + pin security + session inactive → 'PinLock'
+ * 2. Registered + no MPIN stored → 'SecuritySetup' (first-time setup)
+ * 3. Registered + has MPIN + onboarding not done → 'Onboarding'
+ * 4. Registered + has MPIN + session active → 'MainTab'
+ * 5. Registered + has MPIN + session inactive (PIN lock) → 'PinLock'
+ *
+ * @param authState - Current auth state from AuthService
+ * @param onboardingDone - Whether onboarding has been completed
  */
-export function determineRoute(authState: AuthState): string {
+export function determineRoute(authState: AuthState, onboardingDone: boolean = true): string {
+  // Not registered at all — show registration
   if (!authState.isRegistered) {
     return 'Registration';
   }
 
-  // First-time user who hasn't set up any PIN or pattern yet
+  // Registered but never set up MPIN — show security setup
   if (!authState.hasCredentials) {
     return 'SecuritySetup';
   }
 
-  // Security is disabled (user toggled off) — go straight to app
+  // MPIN is set but onboarding hasn't been shown yet
+  if (!onboardingDone) {
+    return 'Onboarding';
+  }
+
+  // Security is disabled (user toggled off in settings) — go straight to app
   if (!authState.securityMethod) {
     return 'MainTab';
   }
 
-  // Security is enabled but session is still active — no need to re-auth
-  if (authState.isSessionActive) {
-    return 'MainTab';
-  }
-
-  // Session expired / first launch — show the appropriate lock screen
-  if (authState.securityMethod === 'pattern') {
-    return 'PatternLock';
-  }
-
+  // Always require PIN on every app open
   return 'PinLock';
 }

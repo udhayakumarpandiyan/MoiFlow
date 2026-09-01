@@ -1,0 +1,8 @@
+# Release Signing Configuration
+# Copy this file to release-signing.properties and fill in your keystore details.
+# DO NOT commit the actual release-signing.properties file to version control.
+
+RELEASE_STORE_FILE=moiflow-release.keystore
+RELEASE_STORE_PASSWORD=your_store_password
+RELEASE_KEY_ALIAS=moiflow
+RELEASE_KEY_PASSWORD=your_key_password

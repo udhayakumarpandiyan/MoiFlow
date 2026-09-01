@@ -1,16 +1,16 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
   Animated,
+  Image,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/AuthService';
-import MoiflowLogo from '../components/MoiflowLogo';
 
 interface Props {
   onUnlocked: () => void;
@@ -22,7 +22,7 @@ const KEYPAD = [
   ['1', '2', '3'],
   ['4', '5', '6'],
   ['7', '8', '9'],
-  ['', '0', '?'],
+  ['', '0', '⌫'],
 ];
 
 const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
@@ -110,7 +110,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
 
   const handleKey = (key: string) => {
     if (lockedOut || verifying) return;
-    if (key === '?') {
+    if (key === '⌫') {
       setPin(prev => {
         if (prev.length > 0) {
           dotScales[prev.length - 1].setValue(0);
@@ -138,7 +138,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
   const verify = async (entered: string) => {
     setVerifying(true);
     try {
-      const isValid = await authService.verifyPin(entered);
+      const isValid = await authService.verifyMPIN(entered);
 
       if (isValid) {
         onUnlocked();
@@ -155,7 +155,6 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
         }
       }
     } catch (err) {
-      console.error('[PinLock] verify error:', err);
       setPin('');
       resetDots();
       setError(t('auth.pinLock.wrongPin'));
@@ -164,11 +163,24 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
     }
   };
 
+  const formatCountdown = (seconds: number): string => {
+    if (seconds >= 60) {
+      const mins = Math.floor(seconds / 60);
+      const secs = seconds % 60;
+      return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+    return `${seconds}s`;
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
       {/* Brand */}
       <View style={styles.brandSection}>
-        <MoiflowLogo color={colors.primary} size="medium" />
+        <Image
+          source={require('../assets/app-icon/moiflow-app-icon-192.png')}
+          style={styles.appIcon}
+          resizeMode="contain"
+        />
       </View>
 
       {/* Title & subtitle */}
@@ -184,32 +196,22 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
       {/* PIN Dots */}
       <Animated.View
         style={[styles.dotsRow, { transform: [{ translateX: shakeAnim }] }]}
-        accessibilityRole="image"
+        accessibilityRole="none"
         accessibilityLabel={t('auth.pinLock.enterPin')}
       >
-        {Array.from({ length: PIN_LENGTH }).map((_, i) => {
-          const isFilled = pin.length > i;
+        {Array.from({ length: PIN_LENGTH }, (_, i) => {
+          const isFilled = i < pin.length;
           const scale = dotScales[i].interpolate({
             inputRange: [0, 1],
             outputRange: [0, 1],
           });
-
           return (
-            <View key={i} style={styles.dotWrapper}>
-              <View
-                style={[
-                  styles.dot,
-                  { borderColor: '#D1D5DB' },
-                ]}
-              />
+            <View key={i} style={[styles.dotOuter, { borderColor: isFilled ? colors.primary : colors.border }]}>
               {isFilled && (
                 <Animated.View
                   style={[
-                    styles.dotFilled,
-                    {
-                      backgroundColor: '#111827',
-                      transform: [{ scale }],
-                    },
+                    styles.dotInner,
+                    { backgroundColor: colors.primary, transform: [{ scale }] },
                   ]}
                 />
               )}
@@ -218,57 +220,46 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
         })}
       </Animated.View>
 
-      {/* Error / Lockout message */}
-      <View style={styles.messageContainer}>
-        {lockedOut ? (
-          <Text style={[styles.errorText, { color: '#DC2626' }]}>
-            {t('auth.pinLock.lockout', { seconds: countdown })}
-          </Text>
-        ) : error ? (
-          <Text style={[styles.errorText, { color: '#DC2626' }]}>
-            {error}
-          </Text>
-        ) : null}
-      </View>
+      {/* Status messages */}
+      {lockedOut ? (
+        <Text style={[styles.errorText, { color: colors.error }]}>
+          {t('auth.pinLock.lockout', { time: formatCountdown(countdown) })}
+        </Text>
+      ) : error ? (
+        <Text style={[styles.errorText, { color: colors.error }]}>{error}</Text>
+      ) : (
+        <View style={styles.errorPlaceholder} />
+      )}
 
       {/* Keypad */}
       <View style={styles.keypad}>
         {KEYPAD.map((row, ri) => (
           <View key={ri} style={styles.keyRow}>
-            {row.map((key, ki) => {
-              const isEmpty = key === '';
-              const isBackspace = key === '?';
-
-              return (
-                <TouchableOpacity
-                  key={ki}
+            {row.map((key, ki) => (
+              <TouchableOpacity
+                key={ki}
+                style={[
+                  styles.key,
+                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  key === '' && styles.keyEmpty,
+                  lockedOut && { opacity: 0.4 },
+                ]}
+                onPress={() => handleKey(key)}
+                disabled={key === '' || lockedOut || verifying}
+                activeOpacity={0.7}
+                accessibilityLabel={key === '⌫' ? t('common.back') : key}
+              >
+                <Text
                   style={[
-                    styles.key,
-                    isEmpty && styles.keyInvisible,
-                    !isEmpty && {
-                      backgroundColor: '#F3F4F6',
-                    },
+                    styles.keyText,
+                    { color: colors.textPrimary },
+                    key === '⌫' && { fontSize: 20 },
                   ]}
-                  onPress={() => handleKey(key)}
-                  disabled={isEmpty || lockedOut}
-                  activeOpacity={0.6}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    isBackspace ? 'Delete' : key
-                  }
                 >
-                  <Text
-                    style={[
-                      styles.keyText,
-                      { color: isBackspace ? '#6B7280' : '#111827' },
-                      isBackspace && styles.keyBackspace,
-                    ]}
-                  >
-                    {key}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+                  {key}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         ))}
       </View>
@@ -282,84 +273,86 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     alignItems: 'center',
-    paddingTop: 48,
+    paddingTop: 40,
   },
   brandSection: {
-    marginBottom: 40,
+    marginBottom: 32,
+    alignItems: 'center',
+  },
+  appIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 18,
   },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 28,
   },
   title: {
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: '700',
-    letterSpacing: 0.5,
+    marginBottom: 6,
   },
   subtitle: {
     fontSize: 13,
-    marginTop: 8,
-    fontWeight: '400',
   },
   dotsRow: {
     flexDirection: 'row',
-    gap: 24,
-    marginBottom: 12,
+    gap: 20,
+    marginBottom: 16,
   },
-  dotWrapper: {
-    width: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dot: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+  dotOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
-    position: 'absolute',
-  },
-  dotFilled: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    position: 'absolute',
-  },
-  messageContainer: {
-    height: 32,
-    justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    justifyContent: 'center',
+  },
+  dotInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   errorText: {
     fontSize: 12,
     fontWeight: '600',
-    textAlign: 'center',
+    marginBottom: 20,
+    minHeight: 18,
+  },
+  errorPlaceholder: {
+    minHeight: 18,
+    marginBottom: 20,
   },
   keypad: {
     width: 280,
-    marginTop: 12,
   },
   keyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: 14,
   },
   key: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
   },
-  keyInvisible: {
+  keyEmpty: {
     backgroundColor: 'transparent',
+    borderWidth: 0,
+    elevation: 0,
+    shadowOpacity: 0,
   },
   keyText: {
-    fontSize: 24,
-    fontWeight: '500',
-  },
-  keyBackspace: {
-    fontSize: 21,
+    fontSize: 23,
+    fontWeight: '600',
   },
 });

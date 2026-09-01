@@ -142,7 +142,6 @@ const ReportsScreen = () => {
       setOverallReport(overall);
       setEventReports(events);
     } catch (err) {
-      console.error('[Reports] load error:', err);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -416,10 +415,11 @@ const ReportsScreen = () => {
             mode="date"
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             maximumDate={toDate}
-            onChange={(_, date) => {
+            onValueChange={(_, date) => {
               setShowFromPicker(false);
-              if (date) setFromDate(date);
+              setFromDate(date);
             }}
+            onDismiss={() => setShowFromPicker(false)}
           />
         )}
         {showToPicker && (
@@ -429,10 +429,11 @@ const ReportsScreen = () => {
             display={Platform.OS === 'ios' ? 'spinner' : 'default'}
             minimumDate={fromDate}
             maximumDate={new Date()}
-            onChange={(_, date) => {
+            onValueChange={(_, date) => {
               setShowToPicker(false);
-              if (date) setToDate(date);
+              setToDate(date);
             }}
+            onDismiss={() => setShowToPicker(false)}
           />
         )}
 

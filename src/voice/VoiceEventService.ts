@@ -21,10 +21,13 @@ export class VoiceEventService {
     return this._recognizer;
   }
 
-  async startListening(onText: (text: string) => void): Promise<void> {
+  async startListening(onText: (text: string) => void, onError?: (error: string) => void): Promise<void> {
     this.recognizer.onResult((text) => {
-      console.log('[VoiceEventService] recognised:', text);
       onText(text);
+    });
+    this.recognizer.onError((err) => {
+      const msg = typeof err === 'string' ? err : err?.message ?? 'Speech recognition error';
+      onError?.(msg);
     });
     await this.recognizer.start();
   }
@@ -46,13 +49,14 @@ export class VoiceEventService {
         body: JSON.stringify({ text }),
       });
     } catch (networkErr) {
-      //console.warn('[VoiceEventService] NLU server unreachable — using local parser:', networkErr);
       const local = this.localParser.parse(text);
       return {
         eventName: local.eventName,
         eventType: local.eventType,
         date: local.date,
+        time: local.time,
         venue: local.venue,
+        villageName: local.villageName,
         confidence: local.confidence * 0.7,
       };
     }

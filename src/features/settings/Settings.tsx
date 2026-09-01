@@ -19,6 +19,7 @@ import RNFS from 'react-native-fs';
 import {
   settingsService,
   backupService,
+  authService,
 } from '../../services';
 
 import { notificationService } from '../../services/NotificationService';
@@ -106,8 +107,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
     securityEnabled: false,
     securityMethod: null,
-    pinHash: null,
-    patternLock: null,
     biometricEnabled: false,
 
     eventAlarmEnabled: false,
@@ -163,10 +162,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
 
       setBackupFiles(files);
     } catch (err) {
-      console.error(
-        '[Settings] load error:',
-        err,
-      );
     } finally {
       setLoading(false);
     }
@@ -212,10 +207,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         language: pendingLanguage,
       }));
     } catch (error) {
-      console.error(
-        '[Settings] language change error:',
-        error,
-      );
 
       Alert.alert(
         t('settings.error'),
@@ -235,9 +226,9 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
     enabled: boolean,
   ) => {
     if (enabled) {
-      // If a PIN hash already exists, just re-enable it (no need to set up again)
-      const existingHash = await settingsService.getPinHash();
-      if (existingHash) {
+      // If an MPIN already exists in secure storage, just re-enable it
+      const hasMpin = await authService.hasMPINStored();
+      if (hasMpin) {
         await settingsService.setSecurityEnabled(true);
         await settingsService.setSecurityMethod('pin');
         setSettings(prev => ({
@@ -248,7 +239,7 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         return;
       }
 
-      // No existing PIN — navigate to setup
+      // No existing MPIN — navigate to setup
       navigation?.navigate('PinSetup', {
         onSuccess: async () => {
           await settingsService.setSecurityEnabled(true);
@@ -257,61 +248,13 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
             ...prev,
             securityEnabled: true,
             securityMethod: 'pin',
-            pinHash: 'set',
           }));
         },
       });
       return;
     }
 
-    // Toggling OFF — just disable security, keep the hash
-    await settingsService.setSecurityEnabled(false);
-    await settingsService.setSecurityMethod(null);
-    setSettings(prev => ({
-      ...prev,
-      securityEnabled: false,
-      securityMethod: null,
-    }));
-  };
-
-  // ---------------------------------------------------------------------------
-  // Pattern Lock
-  // ---------------------------------------------------------------------------
-
-  const handlePatternToggle = async (
-    enabled: boolean,
-  ) => {
-    if (enabled) {
-      // If a pattern already exists, just re-enable it (no need to set up again)
-      const existingPattern = await settingsService.getPatternLock();
-      if (existingPattern) {
-        await settingsService.setSecurityEnabled(true);
-        await settingsService.setSecurityMethod('pattern');
-        setSettings(prev => ({
-          ...prev,
-          securityEnabled: true,
-          securityMethod: 'pattern',
-        }));
-        return;
-      }
-
-      // No existing pattern — navigate to setup
-      navigation?.navigate('PatternSetup', {
-        onSuccess: async () => {
-          await settingsService.setSecurityEnabled(true);
-          await settingsService.setSecurityMethod('pattern');
-          setSettings(prev => ({
-            ...prev,
-            securityEnabled: true,
-            securityMethod: 'pattern',
-            patternLock: 'set',
-          }));
-        },
-      });
-      return;
-    }
-
-    // Toggling OFF — just disable security, keep the pattern hash
+    // Toggling OFF — just disable security, keep the MPIN in keychain
     await settingsService.setSecurityEnabled(false);
     await settingsService.setSecurityMethod(null);
     setSettings(prev => ({
@@ -406,11 +349,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
         );
       }
     } catch (err) {
-      console.error(
-        '[Settings] backup error:',
-        err,
-      );
-
       Alert.alert(
         t('settings.error'),
         t('settings.backupFailedMsg'),
@@ -605,11 +543,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                 );
               }
             } catch (err) {
-              console.error(
-                '[Settings] restore error:',
-                err,
-              );
-
               Alert.alert(
                 t('settings.error'),
                 t('settings.restoreFailedMsg'),
@@ -801,40 +734,6 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
               }}
               thumbColor={
                 settings.securityMethod === 'pin'
-                  ? colors.primary
-                  : colors.textDisabled
-              }
-            />
-          </View>
-
-          <View style={styles.sep} />
-
-          {/* Pattern Lock */}
-
-          <View style={styles.row}>
-            <View style={styles.rowContent}>
-              <Text style={styles.rowTitle}>
-                {t('settings.patternLock')}
-              </Text>
-
-              <Text style={styles.rowSub}>
-                {t('settings.patternLockDesc')}
-              </Text>
-            </View>
-
-            <Switch
-              value={
-                settings.securityMethod === 'pattern'
-              }
-              onValueChange={
-                handlePatternToggle
-              }
-              trackColor={{
-                false: colors.border,
-                true: colors.primaryLight,
-              }}
-              thumbColor={
-                settings.securityMethod === 'pattern'
                   ? colors.primary
                   : colors.textDisabled
               }

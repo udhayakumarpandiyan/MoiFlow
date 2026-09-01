@@ -21,21 +21,16 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// SecuritySetupScreen
+// SecuritySetupScreen — MPIN only (V1)
 // ---------------------------------------------------------------------------
 
 const SecuritySetupScreen: React.FC<Props> = ({ navigation }) => {
   const { t } = useTranslation();
   const { colors } = useTheme();
 
-  const handlePinSelected = () => {
+  const handleSetupMPIN = () => {
     navigation.navigate('PinSetup', {
-      onSuccess: () => navigation.replace('Onboarding'),
-    });
-  };
-
-  const handlePatternSelected = () => {
-    navigation.navigate('PatternSetup', {
+      pinLength: 4,
       onSuccess: () => navigation.replace('Onboarding'),
     });
   };
@@ -46,7 +41,7 @@ const SecuritySetupScreen: React.FC<Props> = ({ navigation }) => {
         {/* Header */}
         <View style={styles.header}>
           <View style={[styles.shieldIcon, { backgroundColor: colors.primaryBg }]}>
-            <Text style={[styles.shieldEmoji]}>🛡️</Text>
+            <Text style={styles.shieldEmoji}>🛡️</Text>
           </View>
           <Text style={[styles.title, { color: colors.textPrimary }]}>
             {t('auth.security.title')}
@@ -56,47 +51,24 @@ const SecuritySetupScreen: React.FC<Props> = ({ navigation }) => {
           </Text>
         </View>
 
-        {/* Options */}
+        {/* MPIN Setup Card */}
         <View style={styles.options}>
-          {/* PIN Option */}
           <TouchableOpacity
             style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-            onPress={handlePinSelected}
+            onPress={handleSetupMPIN}
             activeOpacity={0.7}
             accessibilityRole="button"
-            accessibilityLabel={t('auth.security.choosePIN')}
+            accessibilityLabel={t('auth.security.setupMPIN')}
           >
             <View style={[styles.iconContainer, { backgroundColor: colors.primaryBg }]}>
-              <Text style={styles.iconText}>🔢</Text>
+              <Text style={styles.iconText}>🔐</Text>
             </View>
             <View style={styles.cardContent}>
               <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
-                {t('auth.security.choosePIN')}
+                {t('auth.security.setupMPIN')}
               </Text>
               <Text style={[styles.cardDescription, { color: colors.textMuted }]}>
-                {t('settings.mpin')}
-              </Text>
-            </View>
-            <Text style={[styles.chevron, { color: colors.textDisabled }]}>›</Text>
-          </TouchableOpacity>
-
-          {/* Pattern Option */}
-          <TouchableOpacity
-            style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-            onPress={handlePatternSelected}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel={t('auth.security.choosePattern')}
-          >
-            <View style={[styles.iconContainer, { backgroundColor: colors.primaryBg }]}>
-              <Text style={styles.iconText}>⬡</Text>
-            </View>
-            <View style={styles.cardContent}>
-              <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
-                {t('auth.security.choosePattern')}
-              </Text>
-              <Text style={[styles.cardDescription, { color: colors.textMuted }]}>
-                {t('settings.patternLock')}
+                {t('auth.security.mpinDescription')}
               </Text>
             </View>
             <Text style={[styles.chevron, { color: colors.textDisabled }]}>›</Text>

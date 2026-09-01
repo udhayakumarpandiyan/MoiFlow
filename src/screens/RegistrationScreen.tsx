@@ -56,19 +56,27 @@ const RegistrationScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      // Request the backend to generate and send OTP
-      const response = await sendOTP(phone.trim(), name.trim());
-      if (!response.success) {
-        Alert.alert(t('common.error'), response.message);
-        setSaving(false);
-        return;
-      }
+      // Try to send OTP via the backend. If the backend is unreachable
+      // (offline / server not running), fall back to local-only registration
+      // so the offline-first app remains fully functional without network.
+      try {
+        const response = await sendOTP(phone.trim(), name.trim());
+        if (!response.success) {
+          Alert.alert(t('common.error'), response.message);
+          setSaving(false);
+          return;
+        }
 
-      // Navigate to OTP verification
-      navigation.replace('OTPVerification', {
-        phone: phone.trim(),
-        name: name.trim(),
-      });
+        // Backend is available — use OTP verification flow
+        navigation.replace('OTPVerification', {
+          phone: phone.trim(),
+          name: name.trim(),
+        });
+      } catch {
+        // Backend unreachable — complete registration locally (offline-first)
+        await authService.completeRegistration(name.trim(), phone.trim());
+        navigation.replace('SecuritySetup');
+      }
     } catch {
       Alert.alert(t('common.error'), t('auth.registration.failed'));
     } finally {
@@ -175,7 +183,6 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   brand: { alignItems: 'center', marginBottom: 32 },
   brandLogo: { width: 200, height: 60 },
-  logoEn: { fontSize: 23, fontWeight: '800', letterSpacing: 0.5 },
   tagline: { marginTop: 6, fontSize: 12 },
   card: {
     borderRadius: 16,

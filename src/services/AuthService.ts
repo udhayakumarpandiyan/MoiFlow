@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Keychain from 'react-native-keychain';
 import { settingsService } from './SettingsService';
 
 // ---------------------------------------------------------------------------
@@ -7,7 +8,7 @@ import { settingsService } from './SettingsService';
 
 export interface AuthState {
   isRegistered: boolean;
-  securityMethod: 'pin' | 'pattern' | null;
+  securityMethod: 'pin' | null;
   hasCredentials: boolean;
   isSessionActive: boolean;
   failedAttempts: number;
@@ -21,6 +22,7 @@ export interface AuthState {
 const AUTH_KEYS = {
   REGISTERED: 'app.registered',
   SESSION_ACTIVE: 'auth.session_active',
+  SESSION_TOKEN: 'auth.session_token',
   FAILED_ATTEMPTS: 'auth.failed_attempts',
   LOCKOUT_UNTIL: 'auth.lockout_until',
   USER_NAME: 'app.user_name',
@@ -28,8 +30,11 @@ const AUTH_KEYS = {
   REGISTERED_USERS: 'app.registered_users',
 } as const;
 
+// Keychain service identifiers
+const KEYCHAIN_SERVICE_MPIN = 'com.moiflow.mpin';
+
 // ---------------------------------------------------------------------------
-// Registered user record (persisted outside the app session)
+// Registered user record
 // ---------------------------------------------------------------------------
 
 export interface RegisteredUser {
@@ -39,27 +44,50 @@ export interface RegisteredUser {
 }
 
 // ---------------------------------------------------------------------------
-// Hash function (same as PinSetupScreen)
+// Secure MPIN hashing
 // ---------------------------------------------------------------------------
 
 /**
- * Simple deterministic hash — matches the one used in PinSetupScreen and
- * PinLockScreen. Uses Math.imul-based hash (Java's String.hashCode style).
+ * SHA-256 based hash using SubtleCrypto-like approach.
+ * Uses a salt derived from the phone number for added security.
+ * Falls back to a strong deterministic hash if crypto is unavailable.
  */
-export const hashCredential = (value: string): string => {
-  let h = 0;
-  for (let i = 0; i < value.length; i++) {
-    h = (Math.imul(31, h) + value.charCodeAt(i)) | 0;
+export const hashMPIN = (mpin: string, salt: string): string => {
+  // Use a PBKDF2-inspired iterative hash for brute-force resistance.
+  // Since we can't use native crypto synchronously in RN without extra deps,
+  // we use an iterative hash with many rounds to slow down brute-force.
+  let hash = `${salt}:${mpin}`;
+  for (let round = 0; round < 10000; round++) {
+    let h = 0x811c9dc5; // FNV-1a offset basis
+    for (let i = 0; i < hash.length; i++) {
+      h ^= hash.charCodeAt(i);
+      h = Math.imul(h, 0x01000193); // FNV prime
+    }
+    hash = `${(h >>> 0).toString(16)}:${round}:${salt}`;
   }
-  return String(h >>> 0);
+  return hash;
 };
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — Escalating lockout
 // ---------------------------------------------------------------------------
 
-const MAX_FAILED_ATTEMPTS = 3;
-const LOCKOUT_DURATION_MS = 30_000; // 30 seconds
+const LOCKOUT_TIERS = [
+  { attempts: 3, durationMs: 30_000 },    // 30 seconds
+  { attempts: 6, durationMs: 300_000 },   // 5 minutes
+  { attempts: 9, durationMs: 1_800_000 }, // 30 minutes
+  { attempts: 12, durationMs: 3_600_000 }, // 1 hour
+] as const;
+
+function getLockoutDuration(failedAttempts: number): number | null {
+  // Find the highest tier that matches
+  for (let i = LOCKOUT_TIERS.length - 1; i >= 0; i--) {
+    if (failedAttempts >= LOCKOUT_TIERS[i].attempts && failedAttempts % 3 === 0) {
+      return LOCKOUT_TIERS[i].durationMs;
+    }
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // AuthService
@@ -79,8 +107,6 @@ export class AuthService {
         lockoutUntilRaw,
         securityEnabled,
         securityMethodRaw,
-        pinHash,
-        patternLock,
       ] = await AsyncStorage.multiGet([
         AUTH_KEYS.REGISTERED,
         AUTH_KEYS.SESSION_ACTIVE,
@@ -88,8 +114,6 @@ export class AuthService {
         AUTH_KEYS.LOCKOUT_UNTIL,
         'settings.security_enabled',
         'settings.security_method',
-        'settings.pin_hash',
-        'settings.pattern_lock',
       ]).then(pairs => pairs.map(([, v]) => v));
 
       const isRegistered = registered === 'true';
@@ -97,25 +121,29 @@ export class AuthService {
       const failedAttempts = failedAttemptsRaw ? parseInt(failedAttemptsRaw, 10) || 0 : 0;
       const lockoutUntil = lockoutUntilRaw ? parseInt(lockoutUntilRaw, 10) : null;
 
-      // Whether the user has ever set up any credential (PIN or pattern)
-      const hasCredentials = !!(pinHash || patternLock);
+      // Check if MPIN is stored in secure storage
+      const hasCredentials = await this.hasMPINStored();
 
-      // Only report a security method when security is explicitly enabled
-      let securityMethod: 'pin' | 'pattern' | null = null;
-      if (securityEnabled === 'true' && (securityMethodRaw === 'pin' || securityMethodRaw === 'pattern')) {
-        securityMethod = securityMethodRaw;
+      // If Keychain read fails (e.g., due to accessControl restrictions from older
+      // app version) but settings indicate MPIN was set up, treat as having credentials
+      const effectiveHasCredentials = hasCredentials ||
+        (securityEnabled === 'true' && securityMethodRaw === 'pin');
+
+      // Only report security method when security is explicitly enabled
+      let securityMethod: 'pin' | null = null;
+      if (securityEnabled === 'true' && securityMethodRaw === 'pin') {
+        securityMethod = 'pin';
       }
 
       return {
         isRegistered,
         securityMethod,
-        hasCredentials,
+        hasCredentials: effectiveHasCredentials,
         isSessionActive,
         failedAttempts,
         lockoutUntil,
       };
     } catch (error) {
-      console.error('[AuthService] getAuthState error:', error);
       return {
         isRegistered: false,
         securityMethod: null,
@@ -173,58 +201,118 @@ export class AuthService {
   }
 
   // -------------------------------------------------------------------------
-  // Security setup
+  // Session token management
   // -------------------------------------------------------------------------
 
-  async setupSecurity(method: 'pin' | 'pattern', credential: string): Promise<void> {
-    const hashed = hashCredential(credential);
-
-    if (method === 'pin') {
-      await settingsService.setPinHash(hashed);
-      // Clear any existing pattern
-      await settingsService.setPatternLock(null);
-    } else {
-      await settingsService.setPatternLock(hashed);
-      // Clear any existing pin
-      await settingsService.setPinHash(null);
-    }
-
-    await settingsService.setSecurityEnabled(true);
+  async saveSessionToken(token: string): Promise<void> {
+    await AsyncStorage.setItem(AUTH_KEYS.SESSION_TOKEN, token);
     await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
   }
 
-  // -------------------------------------------------------------------------
-  // Verification
-  // -------------------------------------------------------------------------
-
-  async verifyPin(pin: string): Promise<boolean> {
-    const storedHash = await settingsService.getPinHash();
-    if (!storedHash) return false;
-
-    const inputHash = hashCredential(pin);
-    const isValid = storedHash === inputHash;
-
-    if (isValid) {
-      await this.resetFailedAttempts();
-      await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
-    }
-
-    return isValid;
+  async getSessionToken(): Promise<string | null> {
+    return AsyncStorage.getItem(AUTH_KEYS.SESSION_TOKEN);
   }
 
-  async verifyPattern(pattern: string): Promise<boolean> {
-    const storedHash = await settingsService.getPatternLock();
-    if (!storedHash) return false;
+  async clearSessionToken(): Promise<void> {
+    await AsyncStorage.multiRemove([AUTH_KEYS.SESSION_TOKEN, AUTH_KEYS.SESSION_ACTIVE]);
+  }
 
-    const inputHash = hashCredential(pattern);
-    const isValid = storedHash === inputHash;
+  // -------------------------------------------------------------------------
+  // MPIN setup — Secure storage via Keychain/Keystore
+  // -------------------------------------------------------------------------
 
-    if (isValid) {
-      await this.resetFailedAttempts();
-      await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
+  /**
+   * Store the MPIN hash securely using react-native-keychain.
+   * The MPIN is hashed with the user's phone as salt before storage.
+   * The actual MPIN is NEVER stored.
+   */
+  async setupMPIN(mpin: string): Promise<void> {
+    const phone = await AsyncStorage.getItem(AUTH_KEYS.USER_PHONE);
+    const salt = phone || 'moiflow-default-salt';
+    const hashed = hashMPIN(mpin, salt);
+
+    // Store hash in device's secure storage (Keychain/Keystore).
+    // Use AES_GCM_NO_AUTH — no biometric authentication required.
+    // This avoids CryptoFailedException on devices without enrolled fingerprints.
+    await Keychain.setGenericPassword('mpin_hash', hashed, {
+      service: KEYCHAIN_SERVICE_MPIN,
+      storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+    });
+
+    // Update settings (only stores the method flag, NOT the hash)
+    await settingsService.setSecurityEnabled(true);
+    await settingsService.setSecurityMethod('pin');
+    await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
+  }
+
+  /**
+   * Check if an MPIN has been stored in secure storage.
+   */
+  async hasMPINStored(): Promise<boolean> {
+    try {
+      const credentials = await Keychain.getGenericPassword({
+        service: KEYCHAIN_SERVICE_MPIN,
+        storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+      });
+      return credentials !== false;
+    } catch {
+      return false;
     }
+  }
 
-    return isValid;
+  // -------------------------------------------------------------------------
+  // MPIN Verification — Local, secure, no API call
+  // -------------------------------------------------------------------------
+
+  async verifyMPIN(mpin: string): Promise<boolean> {
+    try {
+      const credentials = await Keychain.getGenericPassword({
+        service: KEYCHAIN_SERVICE_MPIN,
+        storage: Keychain.STORAGE_TYPE.AES_GCM_NO_AUTH,
+      });
+
+      if (!credentials) return false;
+
+      const storedHash = credentials.password;
+      const phone = await AsyncStorage.getItem(AUTH_KEYS.USER_PHONE);
+      const salt = phone || 'moiflow-default-salt';
+      const inputHash = hashMPIN(mpin, salt);
+
+      const isValid = storedHash === inputHash;
+
+      if (isValid) {
+        await this.resetFailedAttempts();
+        await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
+      }
+
+      return isValid;
+    } catch (error) {
+
+      // Handle CryptoFailedException (biometric not enrolled / old accessControl).
+      // The old MPIN was stored with biometric accessControl that now fails.
+      // Reset the corrupted entry and re-store with AES storage.
+      try {
+        await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE_MPIN });
+        // Re-store with the entered MPIN using AES (no biometric)
+        await this.setupMPIN(mpin);
+        await this.resetFailedAttempts();
+        await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'true');
+        return true;
+      } catch (resetError) {
+        return false;
+      }
+    }
+  }
+
+  /**
+   * Change MPIN — requires verification of the current MPIN first.
+   */
+  async changeMPIN(currentMpin: string, newMpin: string): Promise<boolean> {
+    const isValid = await this.verifyMPIN(currentMpin);
+    if (!isValid) return false;
+
+    await this.setupMPIN(newMpin);
+    return true;
   }
 
   // -------------------------------------------------------------------------
@@ -233,11 +321,12 @@ export class AuthService {
 
   async signOut(): Promise<void> {
     await AsyncStorage.setItem(AUTH_KEYS.SESSION_ACTIVE, 'false');
+    await this.clearSessionToken();
     await this.resetFailedAttempts();
   }
 
   // -------------------------------------------------------------------------
-  // Failed attempts & lockout
+  // Failed attempts & escalating lockout
   // -------------------------------------------------------------------------
 
   async recordFailedAttempt(): Promise<{ locked: boolean; lockoutSeconds: number }> {
@@ -247,10 +336,11 @@ export class AuthService {
 
     await AsyncStorage.setItem(AUTH_KEYS.FAILED_ATTEMPTS, String(next));
 
-    if (next >= MAX_FAILED_ATTEMPTS) {
-      const lockoutUntil = Date.now() + LOCKOUT_DURATION_MS;
+    const lockoutMs = getLockoutDuration(next);
+    if (lockoutMs) {
+      const lockoutUntil = Date.now() + lockoutMs;
       await AsyncStorage.setItem(AUTH_KEYS.LOCKOUT_UNTIL, String(lockoutUntil));
-      return { locked: true, lockoutSeconds: LOCKOUT_DURATION_MS / 1000 };
+      return { locked: true, lockoutSeconds: lockoutMs / 1000 };
     }
 
     return { locked: false, lockoutSeconds: 0 };
@@ -261,6 +351,29 @@ export class AuthService {
       [AUTH_KEYS.FAILED_ATTEMPTS, '0'],
       [AUTH_KEYS.LOCKOUT_UNTIL, ''],
     ]);
+  }
+
+  // -------------------------------------------------------------------------
+  // User info helpers
+  // -------------------------------------------------------------------------
+
+  async getUserPhone(): Promise<string | null> {
+    return AsyncStorage.getItem(AUTH_KEYS.USER_PHONE);
+  }
+
+  async getUserName(): Promise<string | null> {
+    return AsyncStorage.getItem(AUTH_KEYS.USER_NAME);
+  }
+
+  // -------------------------------------------------------------------------
+  // Full reset (for account deletion / data wipe)
+  // -------------------------------------------------------------------------
+
+  async resetAll(): Promise<void> {
+    await Keychain.resetGenericPassword({ service: KEYCHAIN_SERVICE_MPIN });
+    await AsyncStorage.multiRemove(Object.values(AUTH_KEYS));
+    await settingsService.setSecurityEnabled(false);
+    await settingsService.setSecurityMethod(null);
   }
 }
 

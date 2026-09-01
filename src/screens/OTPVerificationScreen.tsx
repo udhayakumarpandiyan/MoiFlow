@@ -12,18 +12,17 @@ import {
   Image,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/AuthService';
 import { sendOTP, verifyOTP } from '../api/AuthApi';
+import { RootStackParamList } from '../navigation/RootNavigator';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-interface Props {
-  navigation: { replace: (screen: string) => void };
-  route: { params: { phone: string; name: string } };
-}
+type Props = NativeStackScreenProps<RootStackParamList, 'OTPVerification'>;
 
 // ---------------------------------------------------------------------------
 // OTPVerificationScreen
@@ -93,11 +92,16 @@ const OTPVerificationScreen: React.FC<Props> = ({ navigation, route }) => {
 
     setVerifying(true);
     try {
-      const response = await verifyOTP(phone, enteredOtp);
+      const response = await verifyOTP(phone, name, enteredOtp);
       if (!response.verified) {
-        setError(t('auth.otp.invalidOtp'));
+        setError(response.message || t('auth.otp.invalidOtp'));
         setVerifying(false);
         return;
+      }
+
+      // Save session token from backend
+      if (response.token) {
+        await authService.saveSessionToken(response.token);
       }
 
       // OTP verified — now complete the registration locally
@@ -209,7 +213,6 @@ const styles = StyleSheet.create({
   container: { flexGrow: 1, justifyContent: 'center', padding: 24 },
   brand: { alignItems: 'center', marginBottom: 32 },
   brandLogo: { width: 200, height: 60, marginBottom: 10 },
-  logoText: { fontSize: 19, fontWeight: '800', letterSpacing: 0.5 },
   card: {
     borderRadius: 16,
     padding: 24,

@@ -70,7 +70,6 @@ export class TamilSpeechRecognizer {
       );
       return granted === PermissionsAndroid.RESULTS.GRANTED;
     } catch (err) {
-      console.error('[TamilSpeechRecognizer] permission error:', err);
       return false;
     }
   }
@@ -102,8 +101,11 @@ export class TamilSpeechRecognizer {
     }
 
     // Set up NativeEventEmitter
+    // Pass undefined instead of the native module to avoid the warning about
+    // missing addListener/removeListeners methods on newer RN versions.
+    // Events still work because the native module dispatches them globally.
     if (!this.emitter) {
-      this.emitter = new NativeEventEmitter(nativeVoice);
+      this.emitter = new NativeEventEmitter();
     }
 
     // Remove any previous listeners
@@ -143,13 +145,9 @@ export class TamilSpeechRecognizer {
         // If retryable and we haven't exceeded retries, try again automatically
         if (isRetryable && this.retryCount < MAX_RETRIES) {
           this.retryCount++;
-          console.log(
-            `[TamilSpeechRecognizer] Error ${errorCode} (no match), auto-retrying (${this.retryCount}/${MAX_RETRIES})...`,
-          );
           // Small delay before retry to let the system settle
           setTimeout(() => {
-            this.startInternal(this.currentLocale).catch((retryErr) => {
-              console.error('[TamilSpeechRecognizer] retry failed:', retryErr);
+            this.startInternal(this.currentLocale).catch(() => {
               this.onErrorCallback?.('SPEECH_NOT_AVAILABLE');
             });
           }, 300);

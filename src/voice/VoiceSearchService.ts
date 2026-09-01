@@ -54,7 +54,6 @@ export class VoiceSearchService {
     onError?: (error: string) => void,
   ): Promise<void> {
     this.recognizer.onResult((text) => {
-      console.log('[VoiceSearchService] recognised:', text);
       onResult(text);
     });
     this.recognizer.onError((err) => {

@@ -6,8 +6,6 @@ const KEYS = {
   // Security
   SECURITY_ENABLED: 'settings.security_enabled',
   SECURITY_METHOD: 'settings.security_method',
-  PIN_HASH: 'settings.pin_hash',
-  PATTERN_LOCK: 'settings.pattern_lock',
   BIOMETRIC_ENABLED: 'settings.biometric_enabled',
 
   // Notifications
@@ -35,7 +33,7 @@ export type Language = 'ta' | 'en';
 export type Theme =
   | 'default'
   | 'light'
-  | 'dark'
+  | 'dark';
 
 export type BackupInterval =
   | 'daily'
@@ -48,9 +46,7 @@ export interface AppSettings {
 
   // Security
   securityEnabled: boolean;
-  securityMethod: 'pin' | 'pattern' | null;
-  pinHash: string | null;
-  patternLock: string | null;
+  securityMethod: 'pin' | null;
   biometricEnabled: boolean;
 
   // Notifications
@@ -79,8 +75,6 @@ const DEFAULTS: AppSettings = {
   // Security
   securityEnabled: false,
   securityMethod: null,
-  pinHash: null,
-  patternLock: null,
   biometricEnabled: false,
 
   // Notifications
@@ -130,13 +124,7 @@ export class SettingsService {
           map[KEYS.SECURITY_ENABLED] === 'true',
 
         securityMethod:
-          (map[KEYS.SECURITY_METHOD] as 'pin' | 'pattern' | null) ?? null,
-
-        pinHash:
-          map[KEYS.PIN_HASH] ?? null,
-
-        patternLock:
-          map[KEYS.PATTERN_LOCK] ?? null,
+          map[KEYS.SECURITY_METHOD] === 'pin' ? 'pin' : null,
 
         biometricEnabled:
           map[KEYS.BIOMETRIC_ENABLED] === 'true',
@@ -175,8 +163,6 @@ export class SettingsService {
         currency: 'INR',
       };
     } catch (error) {
-      console.error('[SettingsService] getAll error:', error);
-
       return { ...DEFAULTS };
     }
   }
@@ -209,7 +195,7 @@ export class SettingsService {
   }
 
   // ---------------------------------------------------------------------------
-  // Security - mPIN
+  // Security — MPIN only (stored in secure keychain, not here)
   // ---------------------------------------------------------------------------
 
   async setSecurityEnabled(
@@ -222,7 +208,7 @@ export class SettingsService {
   }
 
   async setSecurityMethod(
-    method: 'pin' | 'pattern' | null,
+    method: 'pin' | null,
   ): Promise<void> {
     if (method) {
       await AsyncStorage.setItem(
@@ -236,73 +222,10 @@ export class SettingsService {
     }
   }
 
-  async getSecurityMethod(): Promise<'pin' | 'pattern' | null> {
+  async getSecurityMethod(): Promise<'pin' | null> {
     const value = await AsyncStorage.getItem(KEYS.SECURITY_METHOD);
-    if (value === 'pin' || value === 'pattern') return value;
+    if (value === 'pin') return 'pin';
     return null;
-  }
-
-  async setPinHash(
-    pinHash: string | null,
-  ): Promise<void> {
-    if (pinHash) {
-      await AsyncStorage.setItem(
-        KEYS.PIN_HASH,
-        pinHash,
-      );
-    } else {
-      await AsyncStorage.removeItem(
-        KEYS.PIN_HASH,
-      );
-    }
-  }
-
-  async getPinHash(): Promise<string | null> {
-    return AsyncStorage.getItem(
-      KEYS.PIN_HASH,
-    );
-  }
-
-  async clearPin(): Promise<void> {
-    await AsyncStorage.removeItem(
-      KEYS.PIN_HASH,
-    );
-
-    await AsyncStorage.setItem(
-      KEYS.SECURITY_ENABLED,
-      'false',
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Security - Pattern Lock
-  // ---------------------------------------------------------------------------
-
-  async setPatternLock(
-    pattern: string | null,
-  ): Promise<void> {
-    if (pattern) {
-      await AsyncStorage.setItem(
-        KEYS.PATTERN_LOCK,
-        pattern,
-      );
-    } else {
-      await AsyncStorage.removeItem(
-        KEYS.PATTERN_LOCK,
-      );
-    }
-  }
-
-  async getPatternLock(): Promise<string | null> {
-    return AsyncStorage.getItem(
-      KEYS.PATTERN_LOCK,
-    );
-  }
-
-  async clearPatternLock(): Promise<void> {
-    await AsyncStorage.removeItem(
-      KEYS.PATTERN_LOCK,
-    );
   }
 
   // ---------------------------------------------------------------------------
@@ -464,7 +387,7 @@ export class SettingsService {
     const themes: Theme[] = [
       'default',
       'light',
-      'dark'
+      'dark',
     ];
 
     if (

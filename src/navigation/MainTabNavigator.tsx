@@ -1,4 +1,3 @@
-import { View, Text } from 'react-native';
 import React, { useCallback } from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { CommonActions, useNavigation } from '@react-navigation/native';
@@ -36,15 +35,13 @@ const MainTabNavigator = () => {
   const { colors, themeName } = useTheme();
 
   const handleSignOut = useCallback(async () => {
-    // Determine security method to navigate to the correct auth gate
-    const authState = await authService.getAuthState();
-    const lockScreen = authState.securityMethod === 'pattern' ? 'PatternLock' : 'PinLock';
+    await authService.signOut();
 
-    // Reset the root navigator to the lock screen
+    // Always navigate to PinLock (MPIN is the only lock method)
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
-        routes: [{ name: lockScreen }],
+        routes: [{ name: 'PinLock' }],
       }),
     );
   }, [navigation]);
@@ -69,11 +66,11 @@ const MainTabNavigator = () => {
           fontWeight: '600',
         },
         headerTitle: () => (
-          <MoiflowLogo color={colors.textInverse} size="small" variant="header" />
+          <MoiflowLogo color={colors.textInverse} size="medium" variant="header" />
         ),
         headerRight: () => <ProfileMenu onSignOut={handleSignOut} />,
         tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.textMuted,
+        tabBarInactiveTintColor: colors.textSecondary,
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: '600',

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+﻿import React, { useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -6,17 +6,15 @@ import {
   StyleSheet,
   Animated,
   StatusBar,
-  Dimensions,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { initDB } from '../database/db';
 import { settingsService } from '../services';
 import { authService } from '../services/AuthService';
 import { useTheme } from '../context/ThemeContext';
 import { determineRoute } from '../navigation/determineRoute';
 import i18n from '../i18n/index';
-
-const { width } = Dimensions.get('window');
 
 type NavProp = { replace: (screen: string, params?: Record<string, unknown>) => void };
 
@@ -85,10 +83,10 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
       if (lang) await i18n.changeLanguage(lang);
 
       const authState = await authService.getAuthState();
-      const route = determineRoute(authState);
+      const onboardingDone = (await AsyncStorage.getItem('app.onboarding_done')) === 'true';
+      const route = determineRoute(authState, onboardingDone);
       setTimeout(() => navigation.replace(route), 2200);
     } catch (err) {
-      console.error('[Splash] boot error:', err);
       setTimeout(() => navigation.replace('MainTab'), 2500);
     }
   };

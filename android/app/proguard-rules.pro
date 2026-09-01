@@ -67,3 +67,16 @@
 # Suppress warnings for missing annotations
 -dontwarn javax.annotation.**
 -dontwarn sun.misc.Unsafe
+
+# React Native Image Picker
+-keep class com.imagepicker.** { *; }
+
+# ML Kit Text Recognition
+-keep class com.google.mlkit.vision.** { *; }
+-keep class com.google.android.gms.internal.mlkit_vision_** { *; }
+
+# React Native Keychain
+-keep class com.oblador.keychain.** { *; }
+
+# React Native Share
+-keep class cl.json.** { *; }

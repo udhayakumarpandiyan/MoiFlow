@@ -79,7 +79,6 @@ class NotificationService {
         );
       }
     } catch (err) {
-      console.error('[NotificationService] schedule error:', err);
     }
   }
 
@@ -94,7 +93,6 @@ class NotificationService {
         await notifee.cancelTriggerNotifications(eventAlarmIds);
       }
     } catch (err) {
-      console.error('[NotificationService] cancel error:', err);
     }
   }
 
@@ -106,7 +104,6 @@ class NotificationService {
       const settings = await notifee.requestPermission();
       return settings.authorizationStatus >= 1; // AUTHORIZED or PROVISIONAL
     } catch (err) {
-      console.error('[NotificationService] permission error:', err);
       return false;
     }
   }

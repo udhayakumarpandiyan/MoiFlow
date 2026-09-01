@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 
-// No patches currently needed.
-// @react-native-ml-kit/text-recognition was removed due to Gradle incompatibility.
-// OCR functionality gracefully handles its absence.
-console.log('[postinstall] No patches needed.');
+console.log('[postinstall] Running post-install patches...');
+
+// @react-native-ml-kit/text-recognition uses mavenCentral() and google() — no patches needed.
+console.log('[postinstall] Done.');

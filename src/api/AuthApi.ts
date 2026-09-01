@@ -12,12 +12,20 @@ export interface SendOTPResponse {
 
 export interface VerifyOTPRequest {
   phone: string;
+  name: string;
   otp: string;
 }
 
 export interface VerifyOTPResponse {
   verified: boolean;
   message: string;
+  token: string | null;
+}
+
+export interface SessionResponse {
+  valid: boolean;
+  phone: string;
+  name: string;
 }
 
 /**
@@ -32,10 +40,33 @@ export async function sendOTP(phone: string, name: string): Promise<SendOTPRespo
 
 /**
  * Verify a user-entered OTP against the backend.
+ * Returns a session token on success.
  */
-export async function verifyOTP(phone: string, otp: string): Promise<VerifyOTPResponse> {
+export async function verifyOTP(phone: string, name: string, otp: string): Promise<VerifyOTPResponse> {
   return apiRequest<VerifyOTPResponse>('/api/auth/verify-otp', {
     method: 'POST',
-    body: JSON.stringify({ phone, otp } as VerifyOTPRequest),
+    body: JSON.stringify({ phone, name, otp } as VerifyOTPRequest),
   });
+}
+
+/**
+ * Validate current session token with the backend.
+ */
+export async function validateSession(): Promise<SessionResponse> {
+  return apiRequest<SessionResponse>('/api/auth/session', {
+    method: 'GET',
+  }, true);
+}
+
+/**
+ * Logout — notify backend and discard token.
+ */
+export async function logout(): Promise<void> {
+  try {
+    await apiRequest('/api/auth/logout', {
+      method: 'POST',
+    }, true);
+  } catch {
+    // Logout is best-effort — token is discarded client-side regardless
+  }
 }

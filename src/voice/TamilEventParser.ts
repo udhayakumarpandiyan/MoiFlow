@@ -2,7 +2,9 @@ export interface ParsedVoiceEvent {
   eventName: string | null;
   eventType: string | null;
   date: string | null;
+  time: string | null;
   venue: string | null;
+  villageName: string | null;
   confidence: number;
 }
 
@@ -41,7 +43,35 @@ export class TamilEventParser {
     ['டிசம்பர்', '12'],
   ];
 
-  private static readonly VENUE_KEYWORDS = ['இடம்', 'ஹால்', 'மண்டபம்'];
+  private static readonly VENUE_KEYWORDS = ['இடம்', 'ஹால்', 'மண்டபம்', 'hall', 'mandapam', 'mahal'];
+
+  private static readonly VILLAGE_KEYWORDS = ['ஊர்', 'ஊரு', 'கிராமம்', 'village'];
+
+  private static readonly TIME_PATTERNS: ReadonlyArray<[RegExp, (m: RegExpMatchArray) => string]> = [
+    // "10:30" or "10.30"
+    [/(\d{1,2})[:.]\s*(\d{2})\s*(am|pm|AM|PM)?/, (m) => {
+      let h = parseInt(m[1], 10);
+      const min = m[2];
+      const ampm = m[3]?.toLowerCase();
+      if (ampm === 'pm' && h < 12) h += 12;
+      if (ampm === 'am' && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:${min}`;
+    }],
+    // "மணி 10" or "10 மணி"
+    [/(\d{1,2})\s*மணி/, (m) => `${m[1].padStart(2, '0')}:00`],
+    [/மணி\s*(\d{1,2})/, (m) => `${m[1].padStart(2, '0')}:00`],
+    // "காலை 10 மணி" (morning) or "மாலை 5 மணி" (evening)
+    [/காலை\s*(\d{1,2})/, (m) => `${m[1].padStart(2, '0')}:00`],
+    [/மாலை\s*(\d{1,2})/, (m) => `${String(parseInt(m[1], 10) + 12).padStart(2, '0')}:00`],
+    [/இரவு\s*(\d{1,2})/, (m) => `${String(parseInt(m[1], 10) + 12).padStart(2, '0')}:00`],
+    // English: "5 pm", "10 am"
+    [/(\d{1,2})\s*(am|pm|AM|PM)/, (m) => {
+      let h = parseInt(m[1], 10);
+      if (m[2].toLowerCase() === 'pm' && h < 12) h += 12;
+      if (m[2].toLowerCase() === 'am' && h === 12) h = 0;
+      return `${String(h).padStart(2, '0')}:00`;
+    }],
+  ];
 
   parse(text: string): ParsedVoiceEvent {
     try {
@@ -49,7 +79,9 @@ export class TamilEventParser {
 
       const eventType = this.extractEventType(normalized);
       const date = this.extractDate(normalized);
+      const time = this.extractTime(normalized);
       const venue = this.extractVenue(normalized);
+      const villageName = this.extractVillage(normalized);
       const eventName = this.extractEventName(normalized, eventType, date, venue);
 
       const confidence = this.computeConfidence(eventType, date);
@@ -58,7 +90,9 @@ export class TamilEventParser {
         eventName,
         eventType,
         date,
+        time,
         venue,
+        villageName,
         confidence,
       };
     } catch {
@@ -67,7 +101,9 @@ export class TamilEventParser {
         eventName: null,
         eventType: null,
         date: null,
+        time: null,
         venue: null,
+        villageName: null,
         confidence: 0.3,
       };
     }
@@ -138,23 +174,43 @@ export class TamilEventParser {
     for (const keyword of TamilEventParser.VENUE_KEYWORDS) {
       const index = text.indexOf(keyword);
       if (index !== -1) {
-        // Extract text after the venue keyword until end of clause
-        // A clause ends at a period, comma, or end of string
-        const afterKeyword = text
-          .substring(index + keyword.length)
-          .trim();
-
-        // Take until next clause boundary
-        const clauseMatch = afterKeyword.match(
-          /^[^,.\n।]+/,
-        );
-
-        const venue = clauseMatch
-          ? clauseMatch[0].trim()
-          : afterKeyword.trim();
-
+        const afterKeyword = text.substring(index + keyword.length).trim();
+        const clauseMatch = afterKeyword.match(/^[^,.\n।]+/);
+        const venue = clauseMatch ? clauseMatch[0].trim() : afterKeyword.trim();
         if (venue.length > 0) {
           return venue;
+        }
+      }
+    }
+    return null;
+  }
+
+  private extractTime(text: string): string | null {
+    for (const [pattern, formatter] of TamilEventParser.TIME_PATTERNS) {
+      const match = text.match(pattern);
+      if (match) {
+        return formatter(match);
+      }
+    }
+    return null;
+  }
+
+  private extractVillage(text: string): string | null {
+    for (const keyword of TamilEventParser.VILLAGE_KEYWORDS) {
+      const index = text.indexOf(keyword);
+      if (index !== -1) {
+        // Try text after the keyword
+        const afterKeyword = text.substring(index + keyword.length).trim();
+        const clauseMatch = afterKeyword.match(/^[^,.\n।]+/);
+        const village = clauseMatch ? clauseMatch[0].trim() : afterKeyword.split(/\s+/)[0]?.trim();
+        if (village && village.length > 1) {
+          return village;
+        }
+        // Try text before the keyword (e.g., "முத்தரசன்குப்பம் ஊர்")
+        const beforeKeyword = text.substring(0, index).trim();
+        const lastWord = beforeKeyword.split(/\s+/).pop();
+        if (lastWord && lastWord.length > 2) {
+          return lastWord;
         }
       }
     }

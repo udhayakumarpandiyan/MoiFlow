@@ -1,6 +1,10 @@
 ﻿/**
  * Re-export all services from the DI container.
  * This is the single import point for features/screens.
+ *
+ * NOTE: Non-critical services (voice, OCR, backup, Google Drive) are
+ * lazy-initialized via Proxy in the container — they are NOT instantiated
+ * until first property access. This keeps the startup path fast.
  */
 export {
   entryService,

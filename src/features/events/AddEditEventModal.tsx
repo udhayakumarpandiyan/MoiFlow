@@ -90,6 +90,21 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
         setVenue(existing.venue ?? '');
         setVillageName(existing.villageName ?? '');
         setDescription(existing.description ?? '');
+
+        // Apply prefill from OCR on top of existing event data (overwrite only non-empty fields)
+        if (prefill) {
+          if (prefill.eventName) setName(prefill.eventName);
+          if (prefill.eventType) {
+            const mapped = EVENT_TYPES.find(
+              et => et === prefill.eventType?.toUpperCase() || et.includes(prefill.eventType?.toUpperCase() ?? ''),
+            );
+            if (mapped) setType(mapped);
+          }
+          if (prefill.date) setDate(prefill.date);
+          if (prefill.time) setTime(prefill.time);
+          if (prefill.venue) setVenue(prefill.venue);
+          if (prefill.villageName) setVillageName(prefill.villageName);
+        }
       } else {
         setOwnerType(defaultOwnerType ?? 'MY_EVENT');
         setName('');
@@ -106,7 +121,7 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
           if (prefill.eventType) {
             // Map to known type or default
             const mapped = EVENT_TYPES.find(
-              t => t === prefill.eventType?.toUpperCase() || t.includes(prefill.eventType?.toUpperCase() ?? ''),
+              et => et === prefill.eventType?.toUpperCase() || et.includes(prefill.eventType?.toUpperCase() ?? ''),
             );
             if (mapped) setType(mapped);
           }
@@ -245,12 +260,11 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
                 value={date ? new Date(date) : new Date()}
                 mode="date"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(_, selectedDate) => {
+                onValueChange={(_, selectedDate) => {
                   setShowDatePicker(false);
-                  if (selectedDate) {
-                    setDate(selectedDate.toISOString().split('T')[0]);
-                  }
+                  setDate(selectedDate.toISOString().split('T')[0]);
                 }}
+                onDismiss={() => setShowDatePicker(false)}
               />
             )}
 
@@ -270,14 +284,13 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
                 value={time ? new Date(`2000-01-01T${time}`) : new Date()}
                 mode="time"
                 display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                onChange={(_, selectedTime) => {
+                onValueChange={(_, selectedTime) => {
                   setShowTimePicker(false);
-                  if (selectedTime) {
-                    const h = selectedTime.getHours().toString().padStart(2, '0');
-                    const m = selectedTime.getMinutes().toString().padStart(2, '0');
-                    setTime(`${h}:${m}`);
-                  }
+                  const h = selectedTime.getHours().toString().padStart(2, '0');
+                  const m = selectedTime.getMinutes().toString().padStart(2, '0');
+                  setTime(`${h}:${m}`);
                 }}
+                onDismiss={() => setShowTimePicker(false)}
               />
             )}
 

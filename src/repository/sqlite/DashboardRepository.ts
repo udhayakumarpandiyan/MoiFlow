@@ -172,9 +172,49 @@ export class DashboardRepository implements IDashboardRepository {
       });
     }
 
+    // ── 8. Upcoming events ────────────────────────────────────────────────
+    const [upcomingResult] = await db.executeSql(`
+      SELECT
+        e.id,
+        e.name,
+        e.date AS event_date,
+        e.village_name,
+        COALESCE(SUM(CASE WHEN ent.entry_type = 'OWN_EVENT' THEN ent.cash_amount ELSE 0 END), 0) AS total_received,
+        COALESCE(SUM(CASE WHEN ent.entry_type = 'OTHER_EVENT' THEN ent.cash_amount ELSE 0 END), 0) AS total_given,
+        COUNT(ent.id) AS entry_count
+      FROM events e
+      LEFT JOIN entries ent ON ent.event_id = e.id
+      WHERE e.date >= ?
+      GROUP BY e.id
+      ORDER BY e.date ASC
+      LIMIT 10
+    `, [today]);
+
+    const upcomingEvents: DashboardSummary['upcomingEvents'] = [];
+    for (let i = 0; i < upcomingResult.rows.length; i++) {
+      const row = upcomingResult.rows.item(i);
+      const eventDate = row.event_date ? String(row.event_date) : '';
+      const dateObj = eventDate ? new Date(eventDate) : null;
+      upcomingEvents.push({
+        id: String(row.id),
+        name: String(row.name),
+        eventDate,
+        villageName: row.village_name ? String(row.village_name) : null,
+        day: dateObj ? String(dateObj.getDate()) : undefined,
+        month: dateObj ? dateObj.toLocaleString('default', { month: 'short' }) : undefined,
+        entryCount: Number(row.entry_count) || 0,
+        totalReceived: Number(row.total_received) || 0,
+        totalGiven: Number(row.total_given) || 0,
+        cashToReceive: 0,
+        cashToGive: 0,
+        goldToReceive: 0,
+        goldToGive: 0,
+      });
+    }
+
     return {
       username: '',
-      upcomingEvents: [],
+      upcomingEvents,
       recentOutEntries: recentEntries.filter(e => e.entryType === 'OTHER_EVENT'),
       attendedEvents: 0,
       totalEntries,

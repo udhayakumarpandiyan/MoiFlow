@@ -159,7 +159,6 @@ export const runMigrations = async (
       //console.warn(`[Migration] Applied v${migration.version}: ${migration.description}`);
     } catch (err) {
       await db.executeSql('ROLLBACK;');
-      console.error(`[Migration] Failed v${migration.version}:`, err);
       throw err;
     }
   }

@@ -86,23 +86,35 @@ const VoiceEventModal: React.FC<VoiceEventModalProps> = ({
     setErrorMsg('');
 
     try {
-      await voiceEventService.startListening(async (text) => {
-        setRecognizedText(text);
-        setPhase('parsing');
+      await voiceEventService.startListening(
+        async (text) => {
+          setRecognizedText(text);
+          setPhase('parsing');
 
-        try {
-          const result = await voiceEventService.parse(text);
-          setParsedResult(result);
-          setPhase('done');
-        } catch (err: any) {
+          try {
+            const result = await voiceEventService.parse(text);
+            setParsedResult(result);
+            setPhase('done');
+          } catch (err: any) {
+            setErrorMsg(
+              err?.message?.includes('API Error') || err?.message?.includes('fetch')
+                ? t('voice.serverUnavailable')
+                : (err?.message ?? t('voice.errorGeneric')),
+            );
+            setPhase('error');
+          }
+        },
+        (error) => {
+          // Speech recognition error (e.g., no match after retries)
+          const isNoMatch = error.includes('7/') || error.includes('No match');
           setErrorMsg(
-            err?.message?.includes('API Error') || err?.message?.includes('fetch')
-              ? t('voice.serverUnavailable')
-              : (err?.message ?? t('voice.errorGeneric')),
+            isNoMatch
+              ? t('voice.noMatch')
+              : (error || t('voice.errorGeneric')),
           );
           setPhase('error');
-        }
-      });
+        },
+      );
     } catch (err: any) {
       setErrorMsg(t('errors.voiceUnavailable'));
       setPhase('error');
@@ -220,10 +232,24 @@ const VoiceEventModal: React.FC<VoiceEventModalProps> = ({
                 </View>
               ) : null}
 
+              {parsedResult.time ? (
+                <View style={styles.parsedRow}>
+                  <Text style={styles.parsedKey}>{t('events.time')}</Text>
+                  <Text style={styles.parsedVal}>{parsedResult.time}</Text>
+                </View>
+              ) : null}
+
               {parsedResult.venue ? (
                 <View style={styles.parsedRow}>
                   <Text style={styles.parsedKey}>{t('events.venue')}</Text>
                   <Text style={styles.parsedVal}>{parsedResult.venue}</Text>
+                </View>
+              ) : null}
+
+              {parsedResult.villageName ? (
+                <View style={styles.parsedRow}>
+                  <Text style={styles.parsedKey}>{t('events.village')}</Text>
+                  <Text style={styles.parsedVal}>{parsedResult.villageName}</Text>
                 </View>
               ) : null}
 

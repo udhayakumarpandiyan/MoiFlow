@@ -5,7 +5,7 @@
  *
  * For any combination of auth state (isRegistered, securityMethod, isSessionActive),
  * the routing logic produces exactly one correct destination from the set:
- * ['Registration', 'SecuritySetup', 'MainTab', 'PatternLock', 'PinLock']
+ * ['Registration', 'SecuritySetup', 'MainTab', 'PinLock']
  */
 
 import fc from 'fast-check';
@@ -13,12 +13,13 @@ import { determineRoute } from '../../src/navigation/determineRoute';
 import type { AuthState } from '../../src/services/AuthService';
 
 // Valid routes that the routing logic can produce
-const VALID_ROUTES = ['Registration', 'SecuritySetup', 'MainTab', 'PatternLock', 'PinLock'];
+const VALID_ROUTES = ['Registration', 'SecuritySetup', 'MainTab', 'PinLock'];
 
-// Generator for valid AuthState objects
+// Generator for valid AuthState objects (MPIN only — no pattern)
 const authStateArb: fc.Arbitrary<AuthState> = fc.record({
   isRegistered: fc.boolean(),
-  securityMethod: fc.constantFrom('pin' as const, 'pattern' as const, null),
+  securityMethod: fc.constantFrom('pin' as const, null),
+  hasCredentials: fc.boolean(),
   isSessionActive: fc.boolean(),
   failedAttempts: fc.nat({ max: 10 }),
   lockoutUntil: fc.oneof(fc.constant(null), fc.nat()),
@@ -62,12 +63,12 @@ describe('Navigation Routing - Property 1: Navigation Routing Correctness', () =
   /**
    * **Validates: Requirements 1.3, 3.1**
    *
-   * When registered but no security method is set, routes to SecuritySetup.
+   * When registered but no credentials have been set up, routes to SecuritySetup.
    */
-  it('routes to SecuritySetup when registered but no security method', () => {
+  it('routes to SecuritySetup when registered but no credentials set up', () => {
     fc.assert(
       fc.property(
-        authStateArb.filter((s) => s.isRegistered && s.securityMethod === null),
+        authStateArb.filter((s) => s.isRegistered && !s.hasCredentials),
         (authState) => {
           const route = determineRoute(authState);
           expect(route).toBe('SecuritySetup');
@@ -80,13 +81,33 @@ describe('Navigation Routing - Property 1: Navigation Routing Correctness', () =
   /**
    * **Validates: Requirements 5.1**
    *
-   * When registered with security and session is active, routes to MainTab.
+   * When registered with MPIN security and session is active, routes to MainTab.
    */
-  it('routes to MainTab when registered with security and session active', () => {
+  it('routes to MainTab when registered with MPIN security and session active', () => {
     fc.assert(
       fc.property(
         authStateArb.filter(
-          (s) => s.isRegistered && s.securityMethod !== null && s.isSessionActive,
+          (s) => s.isRegistered && s.hasCredentials && s.securityMethod === 'pin' && s.isSessionActive,
+        ),
+        (authState) => {
+          const route = determineRoute(authState);
+          expect(route).toBe('MainTab');
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  /**
+   * **Validates: Requirements 3.1**
+   *
+   * When registered with credentials but security disabled, routes to MainTab.
+   */
+  it('routes to MainTab when registered with credentials but security disabled', () => {
+    fc.assert(
+      fc.property(
+        authStateArb.filter(
+          (s) => s.isRegistered && s.hasCredentials && s.securityMethod === null,
         ),
         (authState) => {
           const route = determineRoute(authState);
@@ -100,37 +121,15 @@ describe('Navigation Routing - Property 1: Navigation Routing Correctness', () =
   /**
    * **Validates: Requirements 3.1, 5.1**
    *
-   * When registered with pattern security and session inactive, routes to PatternLock.
+   * When registered with MPIN security and session inactive, routes to PinLock.
    */
-  it('routes to PatternLock when registered with pattern and session inactive', () => {
+  it('routes to PinLock when registered with MPIN and session inactive', () => {
     fc.assert(
       fc.property(
         authStateArb.filter(
           (s) =>
             s.isRegistered &&
-            s.securityMethod === 'pattern' &&
-            !s.isSessionActive,
-        ),
-        (authState) => {
-          const route = determineRoute(authState);
-          expect(route).toBe('PatternLock');
-        },
-      ),
-      { numRuns: 100 },
-    );
-  });
-
-  /**
-   * **Validates: Requirements 3.1, 5.1**
-   *
-   * When registered with PIN security and session inactive, routes to PinLock.
-   */
-  it('routes to PinLock when registered with pin and session inactive', () => {
-    fc.assert(
-      fc.property(
-        authStateArb.filter(
-          (s) =>
-            s.isRegistered &&
+            s.hasCredentials &&
             s.securityMethod === 'pin' &&
             !s.isSessionActive,
         ),
@@ -164,7 +163,7 @@ describe('Navigation Routing - Property 1: Navigation Routing Correctness', () =
    * **Validates: Requirements 1.3, 3.1, 3.2, 5.1**
    *
    * The failedAttempts and lockoutUntil fields do not affect routing —
-   * routing depends only on isRegistered, securityMethod, and isSessionActive.
+   * routing depends only on isRegistered, hasCredentials, securityMethod, and isSessionActive.
    */
   it('routing is independent of failedAttempts and lockoutUntil', () => {
     fc.assert(

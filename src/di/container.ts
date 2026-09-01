@@ -3,6 +3,20 @@
  *
  * All repositories and services are instantiated here.
  * Import from this file everywhere -- never create instances inline.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * STARTUP PERFORMANCE OPTIMIZATION
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *
+ * Services are split into two categories:
+ *
+ * 1. CRITICAL (eagerly initialized) — needed at startup for offline-first
+ *    core functionality: entries, events, persons, dashboard, settings, auth.
+ *
+ * 2. DEFERRED (lazy getters) — only instantiated on first access. These are
+ *    features the user may never use in a session (voice, OCR, backup,
+ *    Google Drive, notifications). Their imports and constructors are deferred
+ *    so they don't block the JS thread during app startup.
  */
 
 import { EntryRepository }     from '../repository/sqlite/EntryRepository';
@@ -19,23 +33,13 @@ import { PersonService }     from '../services/PersonService';
 import { DashboardService }  from '../services/DashboardService';
 import { ReportService }     from '../services/ReportService';
 import { SyncQueueService }  from '../services/SyncQueueService';
-import { BackupService }     from '../services/BackupService';
 import { SettingsService }   from '../services/SettingsService';
 import { balanceService }    from '../services/BalanceService';
 
-// VoiceEntryService lives in voice/ because it owns both mic capture and
-// NLU API parsing. The services/VoiceEntryService.ts is a thin alias kept
-// for backward compatibility but the canonical one is voice/VoiceEntryService.
-import { VoiceEntryService } from '../voice/VoiceEntryService';
+// Auth is needed at splash to determine the initial route
+import { authService }       from '../services/AuthService';
 
-// New services added for production-readiness overhaul
-import { authService }          from '../services/AuthService';
-import { googleDriveService }   from '../services/GoogleDriveService';
-import { ocrService }           from '../services/OCRService';
-import { voiceEventService }    from '../voice/VoiceEventService';
-import { VoiceSearchService }   from '../voice/VoiceSearchService';
-
-// --- Repositories -----------------------------------------------------------
+// --- Repositories (critical — SQLite, offline-first) -------------------------
 
 export const entryRepository     = new EntryRepository();
 export const eventRepository     = new EventRepository();
@@ -45,7 +49,7 @@ export const dashboardRepository = new DashboardRepository();
 export const reportRepository    = new ReportRepository();
 export const syncQueueRepository = new SyncQueueRepository();
 
-// --- Services ----------------------------------------------------------------
+// --- Critical Services (eagerly initialized) ---------------------------------
 
 export const entryService     = new EntryService(entryRepository, personRepository, syncQueueRepository);
 export const eventService     = new EventService(eventRepository, syncQueueRepository);
@@ -53,24 +57,111 @@ export const personService    = new PersonService(personRepository);
 export const dashboardService = new DashboardService(dashboardRepository);
 export const reportService    = new ReportService(reportRepository);
 export const syncQueueService = new SyncQueueService(syncQueueRepository);
-export const backupService    = new BackupService();
 export const settingsService  = new SettingsService();
 
-// VoiceEntryService is NOT a singleton at module level because it holds a
-// lazy ref to TamilSpeechRecognizer (native module). It is safe to export
-// as a singleton here because the recognizer inside it is only created on
-// first use (after the bridge is ready).
-export const voiceEntryService = new VoiceEntryService();
-
-export const voiceSearchService = new VoiceSearchService();
-
 export { balanceService };
-
-// --- New services (production-readiness overhaul) ----------------------------
-// These are instantiated in their own modules (lazy-safe singletons) and
-// re-exported here so the rest of the app imports from the container.
-
 export { authService };
-export { googleDriveService };
-export { ocrService };
-export { voiceEventService };
+
+// --- Deferred Services (lazy initialization) ---------------------------------
+// These are not imported at module parse time. Instead, they are instantiated
+// on first access via getter functions. This removes their entire module trees
+// (voice native modules, Google Sign-In, RNFS backup logic, OCR ML Kit, etc.)
+// from the critical startup path.
+
+import type { BackupService as BackupServiceType }           from '../services/BackupService';
+import type { GoogleDriveService as GoogleDriveServiceType } from '../services/GoogleDriveService';
+import type { OCRService as OCRServiceType }                 from '../services/OCRService';
+import type { VoiceEntryService as VoiceEntryServiceType }   from '../voice/VoiceEntryService';
+import type { VoiceSearchService as VoiceSearchServiceType } from '../voice/VoiceSearchService';
+import type { VoiceEventService as VoiceEventServiceType }   from '../voice/VoiceEventService';
+
+let _backupService: BackupServiceType | null = null;
+let _googleDriveService: GoogleDriveServiceType | null = null;
+let _ocrService: OCRServiceType | null = null;
+let _voiceEntryService: VoiceEntryServiceType | null = null;
+let _voiceSearchService: VoiceSearchServiceType | null = null;
+let _voiceEventService: VoiceEventServiceType | null = null;
+
+/**
+ * BackupService — deferred because it imports RNFS and GoogleDriveService,
+ * and is only used from the Settings screen.
+ */
+export const backupService: BackupServiceType = new Proxy({} as BackupServiceType, {
+  get(_target, prop) {
+    if (!_backupService) {
+      const { BackupService } = require('../services/BackupService');
+      _backupService = new BackupService();
+    }
+    return (_backupService as any)[prop];
+  },
+});
+
+/**
+ * GoogleDriveService — deferred because it imports Google Sign-In native
+ * module and is only used for cloud backup operations.
+ */
+export const googleDriveService: GoogleDriveServiceType = new Proxy({} as GoogleDriveServiceType, {
+  get(_target, prop) {
+    if (!_googleDriveService) {
+      const mod = require('../services/GoogleDriveService');
+      _googleDriveService = mod.googleDriveService;
+    }
+    return (_googleDriveService as any)[prop];
+  },
+});
+
+/**
+ * OCRService — deferred because it imports react-native-mlkit-ocr.
+ * Only used when scanning invitations.
+ */
+export const ocrService: OCRServiceType = new Proxy({} as OCRServiceType, {
+  get(_target, prop) {
+    if (!_ocrService) {
+      const mod = require('../services/OCRService');
+      _ocrService = mod.ocrService;
+    }
+    return (_ocrService as any)[prop];
+  },
+});
+
+/**
+ * VoiceEntryService — deferred because it imports TamilSpeechRecognizer
+ * (native voice module). Only used when user opens the voice entry modal.
+ */
+export const voiceEntryService: VoiceEntryServiceType = new Proxy({} as VoiceEntryServiceType, {
+  get(_target, prop) {
+    if (!_voiceEntryService) {
+      const { VoiceEntryService } = require('../voice/VoiceEntryService');
+      _voiceEntryService = new VoiceEntryService();
+    }
+    return (_voiceEntryService as any)[prop];
+  },
+});
+
+/**
+ * VoiceSearchService — deferred because it imports TamilSpeechRecognizer.
+ * Only used from the dashboard voice search modal.
+ */
+export const voiceSearchService: VoiceSearchServiceType = new Proxy({} as VoiceSearchServiceType, {
+  get(_target, prop) {
+    if (!_voiceSearchService) {
+      const { VoiceSearchService } = require('../voice/VoiceSearchService');
+      _voiceSearchService = new VoiceSearchService();
+    }
+    return (_voiceSearchService as any)[prop];
+  },
+});
+
+/**
+ * VoiceEventService — deferred because it imports TamilSpeechRecognizer.
+ * Only used from the voice event modal.
+ */
+export const voiceEventService: VoiceEventServiceType = new Proxy({} as VoiceEventServiceType, {
+  get(_target, prop) {
+    if (!_voiceEventService) {
+      const mod = require('../voice/VoiceEventService');
+      _voiceEventService = mod.voiceEventService;
+    }
+    return (_voiceEventService as any)[prop];
+  },
+});

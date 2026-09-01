@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -11,13 +11,13 @@ import {
   Share,
   Image,
   Linking,
-  ScrollView,
-  SectionList,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useTranslation } from 'react-i18next';
+import RNFS from 'react-native-fs';
+import RNShare, { Social as ShareSocial } from 'react-native-share';
 
-import { eventService } from '../../services';
+import { eventService, ocrService } from '../../services';
 import { MoiEvent } from '../../models/Event';
 import { useTheme, ThemeColors } from '../../context/ThemeContext';
 import Feather from '@react-native-vector-icons/feather';
@@ -27,23 +27,13 @@ import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState } from '../../components/EmptyState';
 import { Badge } from '../../components/Badge';
 import AddEditEntryModal from '../entries/AddEditEntryModal';
-import VoiceEventModal from './VoiceEventModal';
-import { ParsedVoiceEvent } from '../../voice/TamilEventParser';
-import { ocrService } from '../../services/OCRService';
+import type { ParsedVoiceEvent } from '../../voice/TamilEventParser';
 import { pickImage } from '../../utils/imagePicker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import AddEditEventModal, { EventPrefill } from './AddEditEventModal';
 
-const EVENT_TYPES = [
-  'WEDDING',
-  'EAR_PIERCING',
-  'BIRTHDAY',
-  'MUPPOOSAI_PADAYAL',
-  'HOUSEWARMING',
-  'DEATH',
-  'MANJAL_NEERATTU',
-  'OTHER',
-];
+// Lazy-load VoiceEventModal to keep voice native module off the startup path
+const LazyVoiceEventModal = React.lazy(() => import('./VoiceEventModal'));
 
 const EVENT_TASK_KEYS = [
   'events.tasks.invitationPrinting',
@@ -131,7 +121,6 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
         const events = await eventService.getAllEvents();
         setAllEvents(events);
       } catch (err) {
-        console.error('[Events] load error:', err);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -234,7 +223,6 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
               await eventService.setActiveEvent(event.id);
               loadEvents(true);
             } catch (error) {
-              console.error('[Events] set active error:', error);
               Alert.alert(t('common.error'), t('events.setActiveError'));
             }
           },
@@ -285,7 +273,9 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
       eventName: result.eventName,
       eventType: result.eventType,
       date: result.date,
+      time: result.time,
       venue: result.venue,
+      villageName: result.villageName,
     });
     setEventModalVisible(true);
   };
@@ -298,6 +288,11 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
       const eventId = event?.id ?? 'new';
       const imagePath = await pickImage(source, eventId);
 
+      if (imagePath === 'cancelled') {
+        // User cancelled — do nothing
+        return;
+      }
+
       if (!imagePath) {
         Alert.alert(t('events.permissionDenied'), t('events.permissionDeniedMessage'));
         return;
@@ -309,11 +304,11 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
       // Process the image with OCR
       const ocrResult = await ocrService.processImage(imagePath);
 
-      if (ocrResult.confidence >= 0.3) {
-        // OCR extracted data — open event modal with prefilled fields
+      if (ocrResult.rawText && ocrResult.rawText.trim().length > 0) {
+        // OCR extracted text — open event modal with whatever fields we got
         setEditingEvent(event ?? null);
         setEventPrefill({
-          eventName: ocrResult.eventName,
+          eventType: ocrResult.eventName,
           date: ocrResult.date,
           venue: ocrResult.venue,
         });
@@ -335,7 +330,6 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
         );
       }
     } catch (error) {
-      console.error('[Events] captureInvitationImage error:', error);
       Alert.alert(t('common.error'), t('events.ocrError'));
     }
   };
@@ -351,14 +345,20 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
           onPress: async () => {
             try {
               const imagePath = await pickImage('camera', event.id);
+              if (imagePath === 'cancelled') return;
               if (!imagePath) {
                 Alert.alert(t('events.permissionDenied'), t('events.permissionDeniedMessage'));
+                return;
+              }
+              // Verify file exists before storing
+              const exists = await RNFS.exists(imagePath);
+              if (!exists) {
+                Alert.alert(t('common.error'), t('events.ocrError'));
                 return;
               }
               await AsyncStorage.setItem(`invitation.${event.id}`, imagePath);
               Alert.alert(t('common.success'), t('events.invitationSaved'));
             } catch (error) {
-              console.error('[Events] upload invitation error:', error);
               Alert.alert(t('common.error'), t('events.ocrError'));
             }
           },
@@ -368,14 +368,20 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
           onPress: async () => {
             try {
               const imagePath = await pickImage('gallery', event.id);
+              if (imagePath === 'cancelled') return;
               if (!imagePath) {
                 Alert.alert(t('events.permissionDenied'), t('events.permissionDeniedMessage'));
+                return;
+              }
+              // Verify file exists before storing
+              const exists = await RNFS.exists(imagePath);
+              if (!exists) {
+                Alert.alert(t('common.error'), t('events.ocrError'));
                 return;
               }
               await AsyncStorage.setItem(`invitation.${event.id}`, imagePath);
               Alert.alert(t('common.success'), t('events.invitationSaved'));
             } catch (error) {
-              console.error('[Events] upload invitation error:', error);
               Alert.alert(t('common.error'), t('events.ocrError'));
             }
           },
@@ -391,9 +397,16 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
         Alert.alert(t('events.noInvitation'), t('events.noInvitationMessage'));
         return;
       }
+      // Verify the file still exists on disk
+      const exists = await RNFS.exists(imagePath);
+      if (!exists) {
+        // File was deleted — clean up the stale reference
+        await AsyncStorage.removeItem(`invitation.${event.id}`);
+        Alert.alert(t('events.noInvitation'), t('events.noInvitationMessage'));
+        return;
+      }
       setViewingInvitation(imagePath);
     } catch (error) {
-      console.error('[Events] view invitation error:', error);
       Alert.alert(t('common.error'), t('events.shareError'));
     }
   };
@@ -407,27 +420,73 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
       const village = event.villageName || '';
 
       const message = [
-        `🎉 *${event.name}*`,
+        `🎉 *${t('events.invitationTitle', { defaultValue: 'You are cordially invited!' })}*`,
+        '',
+        `📌 *${event.name}*`,
         '',
         `👤 ${t('events.eventOwner')}: ${ownerName}`,
         `📅 ${t('events.date')}: ${eventDate}`,
+        event.time ? `🕐 ${t('events.time')}: ${event.time}` : '',
         `📍 ${t('events.venue')}: ${venue}`,
         village ? `🏘️ ${t('events.village')}: ${village}` : '',
         '',
-        `— ${t('app.name')}`,
+        `🙏 ${t('events.invitationFooter', { defaultValue: 'We look forward to your gracious presence.' })}`,
+        '',
+        `— *${ownerName}*`,
+        `  _via ${t('app.name')}_`,
       ].filter(Boolean).join('\n');
 
-      const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
-      const canOpen = await Linking.canOpenURL(whatsappUrl);
+      // Check if invitation image exists
+      const imagePath = await AsyncStorage.getItem(`invitation.${event.id}`);
+      let hasImage = false;
+      if (imagePath) {
+        hasImage = await RNFS.exists(imagePath);
+      }
 
-      if (canOpen) {
-        await Linking.openURL(whatsappUrl);
+      if (hasImage && imagePath) {
+        // Share image + message via react-native-share (supports WhatsApp with image)
+        try {
+          const base64Image = await RNFS.readFile(imagePath, 'base64');
+          const imageDataUrl = `data:image/jpeg;base64,${base64Image}`;
+
+          // Try WhatsApp-specific share first
+          try {
+            await RNShare.shareSingle({
+              message,
+              url: imageDataUrl,
+              social: ShareSocial.Whatsapp,
+              type: 'image/jpeg',
+            });
+          } catch {
+            // WhatsApp not available or shareSingle failed — use generic share sheet
+            await RNShare.open({
+              message,
+              url: imageDataUrl,
+              type: 'image/jpeg',
+              failOnCancel: false,
+            });
+          }
+        } catch {
+          // react-native-share not available — fallback to text-only via WhatsApp URL
+          const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+          const canOpen = await Linking.canOpenURL(whatsappUrl);
+          if (canOpen) {
+            await Linking.openURL(whatsappUrl);
+          } else {
+            await Share.share({ message });
+          }
+        }
       } else {
-        // Fallback to general share
-        await Share.share({ message });
+        // No image — share text-only via WhatsApp
+        const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+        const canOpen = await Linking.canOpenURL(whatsappUrl);
+        if (canOpen) {
+          await Linking.openURL(whatsappUrl);
+        } else {
+          await Share.share({ message });
+        }
       }
     } catch (error) {
-      console.error('[Events] share invite error:', error);
       Alert.alert(t('common.error'), t('events.shareError'));
     }
   };
@@ -446,7 +505,6 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
               await eventService.deleteEvent(event.id);
               await loadEvents(true);
             } catch (error) {
-              console.error('[Events] delete error:', error);
               Alert.alert(t('common.error'), t('events.deleteEventError'));
             }
           },
@@ -897,15 +955,8 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
         }
       />
 
-      {/* Quick tools */}
-      <View style={styles.quickTools}>
-        {tab === 'OTHER_PERSON' && eventFilter === 'UPCOMING' && (
-          <TouchableOpacity style={styles.quickTool} onPress={() => handleScanInvitation()}>
-            <Text style={styles.quickToolIcon}>📷</Text>
-            <Text style={styles.quickToolText}>{t('events.scan')}</Text>
-          </TouchableOpacity>
-        )}
-      </View>
+      {/* Quick tools (scan disabled) */}
+      <View style={styles.quickTools} />
 
       {/* Voice FAB - above add button */}
       {!(tab === 'OTHER_PERSON' && eventFilter === 'PAST') && (
@@ -943,12 +994,16 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
         }}
       />
 
-      {/* Voice event modal */}
-      <VoiceEventModal
-        visible={voiceEventModalVisible}
-        onClose={() => setVoiceEventModalVisible(false)}
-        onParsed={handleVoiceEventParsed}
-      />
+      {/* Voice event modal — lazy-loaded to keep voice native module off startup */}
+      {voiceEventModalVisible && (
+        <Suspense fallback={null}>
+          <LazyVoiceEventModal
+            visible={voiceEventModalVisible}
+            onClose={() => setVoiceEventModalVisible(false)}
+            onParsed={handleVoiceEventParsed}
+          />
+        </Suspense>
+      )}
 
       {/* Invitation Viewer Modal */}
       {viewingInvitation && (
@@ -961,7 +1016,7 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
               </TouchableOpacity>
             </View>
             <Image
-              source={{ uri: `file://${viewingInvitation}` }}
+              source={{ uri: viewingInvitation.startsWith('file://') ? viewingInvitation : `file://${viewingInvitation}` }}
               style={styles.invitationImage}
               resizeMode="contain"
             />

@@ -19,7 +19,6 @@ import Feather from '@react-native-vector-icons/feather';
 import { useTheme } from '../../context/ThemeContext';
 import { voiceEntryService, entryService } from '../../services';
 import { VoiceEntryService } from '../../voice/VoiceEntryService';
-import { VoiceEntryResult } from '../../types/VoiceEntryResult';
 import { Colors } from '../../theme/colors';
 import { EntryType, Entry } from '../../models/Entry';
 
@@ -130,27 +129,39 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
     }
 
     try {
-      await voiceEntryService.startListening(async (text) => {
-        setRecognizedText(text);
-        setPhase('parsing');
+      await voiceEntryService.startListening(
+        async (text) => {
+          setRecognizedText(text);
+          setPhase('parsing');
 
-        try {
-          const result = await voiceEntryService.parse(text);
-          // Auto-fill form fields from NLU result
-          if (result.personName) setPersonName(result.personName);
-          if (result.villageName) setVillageName(result.villageName);
-          if (result.cashAmount > 0) setCashAmount(String(result.cashAmount));
-          if (result.goldWeight > 0) setGoldWeight(String(result.goldWeight));
-          setPhase('form');
-        } catch (err: any) {
+          try {
+            const result = await voiceEntryService.parse(text);
+            // Auto-fill form fields from NLU result
+            if (result.personName) setPersonName(result.personName);
+            if (result.villageName) setVillageName(result.villageName);
+            if (result.cashAmount > 0) setCashAmount(String(result.cashAmount));
+            if (result.goldWeight > 0) setGoldWeight(String(result.goldWeight));
+            setPhase('form');
+          } catch (err: any) {
+            setErrorMsg(
+              err?.message?.includes('API Error') || err?.message?.includes('fetch')
+                ? t('entries.serverUnreachable')
+                : (err?.message ?? t('entries.parseFailed')),
+            );
+            setPhase('error');
+          }
+        },
+        (error) => {
+          // Speech recognition error (e.g., no match after retries)
+          const isNoMatch = error.includes('7/') || error.includes('No match');
           setErrorMsg(
-            err?.message?.includes('API Error') || err?.message?.includes('fetch')
-              ? t('entries.serverUnreachable')
-              : (err?.message ?? t('entries.parseFailed')),
+            isNoMatch
+              ? t('entries.couldNotRecognize')
+              : (error || t('entries.voiceStartFailed')),
           );
           setPhase('error');
-        }
-      });
+        },
+      );
     } catch (err: any) {
       const msg = err?.message ?? '';
       if (msg === 'VOICE_MODULE_UNAVAILABLE') {
@@ -380,10 +391,11 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
                     mode="date"
                     display={Platform.OS === 'ios' ? 'spinner' : 'default'}
                     maximumDate={new Date()}
-                    onChange={(_, date) => {
+                    onValueChange={(_, date) => {
                       setShowDatePicker(false);
-                      if (date) setEntryDate(date.toISOString().split('T')[0]);
+                      setEntryDate(date.toISOString().split('T')[0]);
                     }}
+                    onDismiss={() => setShowDatePicker(false)}
                   />
                 )}
 

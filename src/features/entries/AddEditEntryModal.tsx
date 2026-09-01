@@ -22,7 +22,6 @@ import { Colors } from '../../theme/colors';
 import { Spacing } from '../../theme/typography';
 import { InputField } from '../../components/InputField';
 import { Button } from '../../components/Button';
-import { SegmentedControl } from '../../components/SegmentedControl';
 import { isoToDateInput } from '../../utils/format';
 import { VoicePrefill } from './VoiceEntryModal';
 
@@ -37,11 +36,6 @@ interface AddEditEntryModalProps {
   onClose: () => void;
   onSaved: (entry: Entry) => void;
 }
-
-const ENTRY_TYPE_SEGMENTS_KEYS = [
-  { key: 'OWN_EVENT', labelKey: 'entries.inEntryType' },
-  { key: 'OTHER_EVENT', labelKey: 'entries.outEntryType' },
-];
 
 const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
   visible,
@@ -76,7 +70,6 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
       const all = await eventService.getAllEvents();
       setEvents(all);
     } catch (err) {
-      console.error('[AddEditEntryModal] load events error:', err);
     }
   }, []);
 
@@ -340,15 +333,14 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
                 value={eventDate ? new Date(eventDate) : new Date()}
                 mode="date"
                 display={Platform.OS === 'ios' ? 'inline' : 'default'}
-                onChange={(_event, selectedDate) => {
+                onValueChange={(_, selectedDate) => {
                   setShowDatePicker(Platform.OS === 'ios');
-                  if (selectedDate) {
-                    const yyyy = selectedDate.getFullYear();
-                    const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
-                    const dd = String(selectedDate.getDate()).padStart(2, '0');
-                    setEventDate(`${yyyy}-${mm}-${dd}`);
-                  }
+                  const yyyy = selectedDate.getFullYear();
+                  const mm = String(selectedDate.getMonth() + 1).padStart(2, '0');
+                  const dd = String(selectedDate.getDate()).padStart(2, '0');
+                  setEventDate(`${yyyy}-${mm}-${dd}`);
                 }}
+                onDismiss={() => setShowDatePicker(false)}
               />
             )}
 

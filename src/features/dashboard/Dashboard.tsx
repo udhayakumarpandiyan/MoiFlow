@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -22,7 +22,7 @@ import {
   RecentEntry,
   DashboardEvent,
 } from '../../models/Dashboard';
-import VoiceSearchModal from './VoiceSearchModal';
+const LazyVoiceSearchModal = React.lazy(() => import('./VoiceSearchModal'));
 
 const DashboardScreen = ({ navigation }: any) => {
   const { t } = useTranslation();
@@ -65,7 +65,6 @@ const DashboardScreen = ({ navigation }: any) => {
 
       setSummary(data);
     } catch (err) {
-      console.error('[Dashboard] load error:', err);
       setError(t('errors.generic'));
     } finally {
       setLoading(false);
@@ -859,35 +858,15 @@ const DashboardScreen = ({ navigation }: any) => {
         </View>
       </Modal>
 
-      {/* Voice Search Modal */}
-      <VoiceSearchModal
-        visible={voiceSearchVisible}
-        onClose={() => setVoiceSearchVisible(false)}
-      />
-    </View>
-  );
-};
-
-const DetailMetric = ({
-  label,
-  value,
-  valueStyle,
-}: {
-  label: string;
-  value: string;
-  valueStyle: any;
-}) => {
-  const { colors: themeColors } = useTheme();
-
-  return (
-    <View style={styles.detailMetric}>
-      <Text style={[styles.detailMetricLabel, { color: themeColors.textMuted }]}>
-        {label}
-      </Text>
-
-      <Text style={[styles.detailMetricValue, valueStyle]}>
-        {value}
-      </Text>
+      {/* Voice Search Modal — lazy-loaded to keep voice native module off startup path */}
+      {voiceSearchVisible && (
+        <Suspense fallback={null}>
+          <LazyVoiceSearchModal
+            visible={voiceSearchVisible}
+            onClose={() => setVoiceSearchVisible(false)}
+          />
+        </Suspense>
+      )}
     </View>
   );
 };
@@ -1620,21 +1599,6 @@ const styles = StyleSheet.create({
 
   checkboxTick: {
     display: 'none',
-  },
-
-  detailMetric: {
-    width: '50%',
-    paddingVertical: 8,
-  },
-
-  detailMetricLabel: {
-    fontSize: 11,
-  },
-
-  detailMetricValue: {
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: 6,
   },
 
   modalPrimaryButton: {

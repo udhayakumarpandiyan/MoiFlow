@@ -29,10 +29,13 @@ export class VoiceEntryService {
     return TamilSpeechRecognizer.isAvailable();
   }
 
-  async startListening(onText: (text: string) => void): Promise<void> {
+  async startListening(onText: (text: string) => void, onError?: (error: string) => void): Promise<void> {
     this.recognizer.onResult((text) => {
-      console.log('[VoiceEntryService] recognised:', text);
       onText(text);
+    });
+    this.recognizer.onError((err) => {
+      const msg = typeof err === 'string' ? err : err?.message ?? 'Speech recognition error';
+      onError?.(msg);
     });
     await this.recognizer.start();
   }

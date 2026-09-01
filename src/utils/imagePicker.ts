@@ -71,12 +71,12 @@ async function requestGalleryPermission(): Promise<boolean> {
  *
  * @param source - 'camera' to take a photo, 'gallery' to pick from library
  * @param eventId - The event ID used to determine the save directory
- * @returns The file path of the captured/selected image, or null if cancelled/denied
+ * @returns The file path of the captured/selected image, 'cancelled' if user cancelled, or null if permission denied
  */
 export async function pickImage(
   source: 'camera' | 'gallery',
   eventId: string,
-): Promise<string | null> {
+): Promise<string | 'cancelled' | null> {
   try {
     // Request appropriate permission
     if (source === 'camera') {
@@ -87,7 +87,7 @@ export async function pickImage(
       if (!hasPermission) return null;
     }
 
-    // Dynamically import react-native-image-picker to avoid hard crash if not installed
+    // Dynamically import react-native-image-picker
     let launchCamera: any;
     let launchImageLibrary: any;
     try {
@@ -95,10 +95,7 @@ export async function pickImage(
       launchCamera = imagePicker.launchCamera;
       launchImageLibrary = imagePicker.launchImageLibrary;
     } catch {
-      // Fallback: if react-native-image-picker is not available, return placeholder path
-      const dir = await ensureInvitationDir(eventId);
-      const timestamp = Date.now();
-      return `${dir}/invitation_${timestamp}.jpg`;
+      return null;
     }
 
     const options = {
@@ -118,9 +115,8 @@ export async function pickImage(
 
     if (result.didCancel || result.errorCode) {
       if (result.errorCode === 'permission') return null;
-      if (result.didCancel) return null;
-      console.warn('[imagePicker] Error:', result.errorMessage);
-      return null;
+      if (result.didCancel) return 'cancelled';
+      return 'cancelled';
     }
 
     const asset = result.assets?.[0];
@@ -132,18 +128,24 @@ export async function pickImage(
     const filename = `invitation_${timestamp}.jpg`;
     const destPath = `${dir}/${filename}`;
 
-    // On Android, the URI might be content:// — copy it to local storage
-    const sourceUri = asset.uri.replace('file://', '');
-    if (await RNFS.exists(sourceUri)) {
-      await RNFS.copyFile(sourceUri, destPath);
-    } else {
-      // For content:// URIs, try copying directly
-      await RNFS.copyFile(asset.uri, destPath);
+    // Handle different URI formats: file:// and content://
+    const sourceUri = asset.uri;
+    const localPath = sourceUri.startsWith('file://') ? sourceUri.replace('file://', '') : sourceUri;
+
+    try {
+      await RNFS.copyFile(localPath, destPath);
+    } catch {
+      // If direct copy fails (e.g., content:// URI), try with original URI
+      try {
+        await RNFS.copyFile(sourceUri, destPath);
+      } catch (copyErr) {
+        // Return the original URI as-is if copy fails — OCR can still read it
+        return localPath;
+      }
     }
 
     return destPath;
   } catch (error) {
-    console.error('[imagePicker] Error picking image:', error);
     return null;
   }
 }

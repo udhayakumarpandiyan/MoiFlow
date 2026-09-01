@@ -114,10 +114,10 @@ const OnboardingScreen: React.FC<Props> = ({ navigation }) => {
         </TouchableOpacity>
       </View>
 
-      {/* Logo */}
+      {/* App Icon */}
       <View style={styles.logoRow}>
         <Image
-          source={require('../assets/logo/moiflow-logo-square-1024.png')}
+          source={require('../assets/app-icon/moiflow-app-icon-192.png')}
           style={styles.logo}
           resizeMode="contain"
         />
@@ -195,8 +195,8 @@ const styles = StyleSheet.create({
     paddingTop: 8,
   },
   skipText: { fontSize: 14, fontWeight: '600' },
-  logoRow: { alignItems: 'center', marginTop: 16, marginBottom: 8 },
-  logo: { width: 48, height: 48 },
+  logoRow: { alignItems: 'center', marginTop: 80, marginBottom: 24 },
+  logo: { width: 120, height: 120, borderRadius: 28 },
   slide: {
     flex: 1,
     alignItems: 'center',

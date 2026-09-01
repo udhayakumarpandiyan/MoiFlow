@@ -1,4 +1,5 @@
 import React, {
+  Suspense,
   useCallback,
   useMemo,
   useRef,
@@ -41,11 +42,19 @@ import { Badge } from '../../components/Badge';
 import { EmptyState } from '../../components/EmptyState';
 
 import AddEditEntryModal from './AddEditEntryModal';
-import VoiceEntryModal, {
-  VoicePrefill,
-} from './VoiceEntryModal';
+import type { VoicePrefill } from './VoiceEntryModal';
 
-import { TamilSpeechRecognizer } from '../../voice/TamilSpeechRecognizer';
+// Lazy-load VoiceEntryModal to keep voice native module off the startup path
+const LazyVoiceEntryModal = React.lazy(() => import('./VoiceEntryModal'));
+
+// TamilSpeechRecognizer is loaded on-demand to avoid pulling the native voice
+// module into the startup path. The class is only needed when the user taps
+// the voice-search button inside the Entries screen.
+type TamilSpeechRecognizerType = import('../../voice/TamilSpeechRecognizer').TamilSpeechRecognizer;
+const getTamilSpeechRecognizer = () => {
+  const { TamilSpeechRecognizer } = require('../../voice/TamilSpeechRecognizer');
+  return TamilSpeechRecognizer as typeof import('../../voice/TamilSpeechRecognizer').TamilSpeechRecognizer;
+};
 
 /* ============================================================================
  * Types
@@ -200,12 +209,13 @@ const EntriesScreen = () => {
    * ------------------------------------------------------------------------ */
 
   const searchRecognizerRef =
-    useRef<TamilSpeechRecognizer | null>(null);
+    useRef<TamilSpeechRecognizerType | null>(null);
 
   const getSearchRecognizer = () => {
     if (!searchRecognizerRef.current) {
+      const SpeechRecognizer = getTamilSpeechRecognizer();
       searchRecognizerRef.current =
-        new TamilSpeechRecognizer();
+        new SpeechRecognizer();
     }
 
     return searchRecognizerRef.current;
@@ -242,11 +252,6 @@ const EntriesScreen = () => {
           Array.isArray(data) ? data : [],
         );
       } catch (error) {
-        console.error(
-          '[Entries] Failed to load entries:',
-          error,
-        );
-
         setAllEntries([]);
       } finally {
         setLoading(false);
@@ -298,11 +303,6 @@ const EntriesScreen = () => {
 
         setOwnEvents(mappedEvents);
       } catch (error) {
-        console.error(
-          '[Entries] Failed to load own events:',
-          error,
-        );
-
         setOwnEvents([]);
       }
     },
@@ -790,7 +790,7 @@ const EntriesScreen = () => {
   const handleVoiceSearch =
     async () => {
       // Check native module availability first
-      if (!TamilSpeechRecognizer.isAvailable()) {
+      if (!getTamilSpeechRecognizer().isAvailable()) {
         Alert.alert(
           t('common.error'),
           t('entries.voiceStartFailed'),
@@ -828,25 +828,21 @@ const EntriesScreen = () => {
         );
 
         recognizer.onError(
-          error => {
-            console.error(
-              '[Entries] Tamil voice search error:',
-              error,
-            );
-
-            setVoiceSearchActive(
-              false,
-            );
+          (error: string) => {
+            // Error 7 = "no match" (speech not recognized)
+            // Show user-friendly feedback instead of raw error
+            const isNoMatch = typeof error === 'string' && error.includes('7/');
+            if (isNoMatch) {
+              // Silently stop — the user can try again
+              setVoiceSearchActive(false);
+            } else {
+              setVoiceSearchActive(false);
+            }
           },
         );
 
         await recognizer.start();
       } catch (error: any) {
-        console.error(
-          '[Entries] Failed to start Tamil voice search:',
-          error,
-        );
-
         if (error?.message === 'MICROPHONE_PERMISSION_DENIED') {
           Alert.alert(
             t('common.error'),
@@ -2451,41 +2447,45 @@ const EntriesScreen = () => {
       </Modal>
 
       {/* =====================================================================
-       * Voice Entry Modal
+       * Voice Entry Modal — lazy-loaded to keep voice native module off startup
        * =================================================================== */}
 
-      <VoiceEntryModal
-        visible={
-          voiceModalVisible
-        }
-        onClose={() =>
-          setVoiceModalVisible(
-            false,
-          )
-        }
-        onSaved={async () => {
-          setVoiceModalVisible(false);
-          await loadEntries(true);
-        }}
-        onParsed={
-          handleVoiceParsed
-        }
-        entryType={
-          direction === 'IN'
-            ? 'OWN_EVENT'
-            : direction === 'OUT'
-            ? 'OTHER_EVENT'
-            : null
-        }
-        eventId={
-          direction === 'IN' && selectedEventId !== 'ALL'
-            ? selectedEventId
-            : null
-        }
-        eventName={
-          direction === 'IN' ? selectedEvent?.name : undefined
-        }
-      />
+      {voiceModalVisible && (
+        <Suspense fallback={null}>
+          <LazyVoiceEntryModal
+            visible={
+              voiceModalVisible
+            }
+            onClose={() =>
+              setVoiceModalVisible(
+                false,
+              )
+            }
+            onSaved={async () => {
+              setVoiceModalVisible(false);
+              await loadEntries(true);
+            }}
+            onParsed={
+              handleVoiceParsed
+            }
+            entryType={
+              direction === 'IN'
+                ? 'OWN_EVENT'
+                : direction === 'OUT'
+                ? 'OTHER_EVENT'
+                : null
+            }
+            eventId={
+              direction === 'IN' && selectedEventId !== 'ALL'
+                ? selectedEventId
+                : null
+            }
+            eventName={
+              direction === 'IN' ? selectedEvent?.name : undefined
+            }
+          />
+        </Suspense>
+      )}
 
       {/* =====================================================================
        * Add / Edit Entry Modal
