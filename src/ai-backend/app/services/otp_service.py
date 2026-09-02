@@ -1,40 +1,96 @@
 """
-Production OTP Service with pluggable store and SMS provider.
+Production OTP Service.
 
-Configuration via environment variables:
-  OTP_STORE_BACKEND    = "memory" | "redis"  (default: memory)
-  OTP_LENGTH           = 6
-  OTP_EXPIRY_SECONDS   = 300
-  OTP_MAX_ATTEMPTS     = 5       (max verify attempts per OTP)
-  OTP_MAX_SEND_PER_HOUR = 5     (rate limit: max OTPs per phone per hour)
-  REDIS_URL            = redis://localhost:6379/0
+Responsibilities:
 
-  SMS_PROVIDER         = "console" | "twilio" | "msg91"
-  TWILIO_ACCOUNT_SID   = ...
-  TWILIO_AUTH_TOKEN    = ...
-  TWILIO_FROM_NUMBER   = ...
-  MSG91_AUTH_KEY       = ...
-  MSG91_SENDER_ID      = ...
-  MSG91_TEMPLATE_ID    = ...
+    - Generate secure OTP
+    - Store OTP securely
+    - OTP expiration
+    - Verification attempt limiting
+    - OTP send rate limiting
+    - SMS delivery
+    - Redis support for production
+    - In-memory support for local development
+
+Production configuration:
+
+    OTP_STORE_BACKEND=redis
+    REDIS_URL=redis://...
+    SMS_PROVIDER=twilio
 """
 
-import os
-import time
+import hashlib
+import hmac
+import logging
 import secrets
+import time
+
+from dataclasses import dataclass
 from typing import Optional
-from dataclasses import dataclass, field
+
+from app.core.config import (
+    OTP_EXPIRY_SECONDS,
+    OTP_LENGTH,
+    OTP_MAX_ATTEMPTS,
+    OTP_MAX_SEND_PER_HOUR,
+    OTP_STORE_BACKEND,
+)
 
 from app.services.sms_provider import get_sms_provider
 
+
+logger = logging.getLogger(__name__)
+
+
 # ---------------------------------------------------------------------------
-# Configuration
+# Helpers
 # ---------------------------------------------------------------------------
 
-OTP_LENGTH = int(os.getenv("OTP_LENGTH", "6"))
-OTP_EXPIRY_SECONDS = int(os.getenv("OTP_EXPIRY_SECONDS", "300"))
-OTP_MAX_ATTEMPTS = int(os.getenv("OTP_MAX_ATTEMPTS", "5"))
-OTP_MAX_SEND_PER_HOUR = int(os.getenv("OTP_MAX_SEND_PER_HOUR", "5"))
-OTP_STORE_BACKEND = os.getenv("OTP_STORE_BACKEND", "memory")
+def normalize_phone(phone: str) -> str:
+    """
+    Normalize Indian mobile number.
+
+    Accepts:
+
+        9876543210
+        +919876543210
+        919876543210
+
+    Stores internally as:
+
+        9876543210
+    """
+
+    phone = phone.strip().replace(" ", "").replace("-", "")
+
+    if phone.startswith("+91"):
+        phone = phone[3:]
+    elif phone.startswith("91") and len(phone) == 12:
+        phone = phone[2:]
+
+    if not phone.isdigit():
+        raise ValueError("Invalid mobile number.")
+
+    if len(phone) != 10:
+        raise ValueError("Mobile number must contain 10 digits.")
+
+    if phone[0] not in "6789":
+        raise ValueError("Invalid Indian mobile number.")
+
+    return phone
+
+
+def hash_otp(phone: str, otp: str) -> str:
+    """
+    Hash OTP before storage.
+
+    Includes the phone number as a salt/input so the same OTP
+    generated for different users does not produce the same hash.
+    """
+
+    value = f"{phone}:{otp}".encode("utf-8")
+
+    return hashlib.sha256(value).hexdigest()
 
 
 # ---------------------------------------------------------------------------
@@ -43,16 +99,15 @@ OTP_STORE_BACKEND = os.getenv("OTP_STORE_BACKEND", "memory")
 
 @dataclass
 class OTPRecord:
-    otp: str
+    otp_hash: str
     phone: str
     created_at: float
     expires_at: float
     attempts: int = 0
-    verified: bool = False
 
 
 # ---------------------------------------------------------------------------
-# Store Interface & Implementations
+# Store Interface
 # ---------------------------------------------------------------------------
 
 class OTPStore:
@@ -77,123 +132,237 @@ class OTPStore:
         raise NotImplementedError
 
 
-class MemoryOTPStore(OTPStore):
-    """In-memory OTP store (suitable for development / single-instance)."""
+# ---------------------------------------------------------------------------
+# Memory Store
+# ---------------------------------------------------------------------------
 
-    def __init__(self):
+class MemoryOTPStore(OTPStore):
+    """
+    In-memory OTP store.
+
+    Development only.
+
+    Do NOT use for production or multi-instance deployment.
+    """
+
+    def __init__(self) -> None:
         self._store: dict[str, OTPRecord] = {}
         self._send_counts: dict[str, list[float]] = {}
 
-    def save(self, phone: str, record: OTPRecord) -> None:
+    def save(
+        self,
+        phone: str,
+        record: OTPRecord,
+    ) -> None:
         self._store[phone] = record
 
-    def get(self, phone: str) -> Optional[OTPRecord]:
+    def get(
+        self,
+        phone: str,
+    ) -> Optional[OTPRecord]:
+
         record = self._store.get(phone)
+
         if record is None:
             return None
-        if time.time() > record.expires_at:
+
+        if time.time() >= record.expires_at:
             self.delete(phone)
             return None
+
         return record
 
     def delete(self, phone: str) -> None:
         self._store.pop(phone, None)
 
     def increment_attempts(self, phone: str) -> int:
+
         record = self._store.get(phone)
-        if record:
-            record.attempts += 1
-            return record.attempts
-        return 0
+
+        if record is None:
+            return 0
+
+        record.attempts += 1
+
+        return record.attempts
 
     def get_send_count(self, phone: str) -> int:
+
         now = time.time()
         one_hour_ago = now - 3600
+
         timestamps = self._send_counts.get(phone, [])
-        # Clean up old entries
-        timestamps = [t for t in timestamps if t > one_hour_ago]
+
+        timestamps = [
+            timestamp
+            for timestamp in timestamps
+            if timestamp > one_hour_ago
+        ]
+
         self._send_counts[phone] = timestamps
+
         return len(timestamps)
 
     def increment_send_count(self, phone: str) -> None:
+
         if phone not in self._send_counts:
             self._send_counts[phone] = []
+
         self._send_counts[phone].append(time.time())
 
 
-class RedisOTPStore(OTPStore):
-    """Redis-backed OTP store for production multi-instance deployments."""
+# ---------------------------------------------------------------------------
+# Redis Store
+# ---------------------------------------------------------------------------
 
-    def __init__(self):
+class RedisOTPStore(OTPStore):
+    """
+    Redis-backed OTP store.
+
+    Required for production.
+    """
+
+    def __init__(self) -> None:
+
         import redis
-        redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
-        self._redis = redis.from_url(redis_url, decode_responses=True)
+
+        from app.core.config import REDIS_URL
+
+        self._redis = redis.Redis.from_url(
+            REDIS_URL,
+            decode_responses=True,
+        )
 
     def _key(self, phone: str) -> str:
-        return f"otp:{phone}"
+        return f"moiflow:otp:{phone}"
 
     def _rate_key(self, phone: str) -> str:
-        return f"otp_rate:{phone}"
+        return f"moiflow:otp:rate:{phone}"
 
-    def save(self, phone: str, record: OTPRecord) -> None:
+    def save(
+        self,
+        phone: str,
+        record: OTPRecord,
+    ) -> None:
+
         import json
-        key = self._key(phone)
+
         data = {
-            "otp": record.otp,
+            "otp_hash": record.otp_hash,
             "phone": record.phone,
             "created_at": record.created_at,
             "expires_at": record.expires_at,
             "attempts": record.attempts,
-            "verified": record.verified,
         }
-        self._redis.setex(key, OTP_EXPIRY_SECONDS, json.dumps(data))
 
-    def get(self, phone: str) -> Optional[OTPRecord]:
+        self._redis.setex(
+            self._key(phone),
+            OTP_EXPIRY_SECONDS,
+            json.dumps(data),
+        )
+
+    def get(
+        self,
+        phone: str,
+    ) -> Optional[OTPRecord]:
+
         import json
-        key = self._key(phone)
-        raw = self._redis.get(key)
+
+        raw = self._redis.get(
+            self._key(phone)
+        )
+
         if raw is None:
             return None
+
         data = json.loads(raw)
+
+        if time.time() >= data["expires_at"]:
+            self.delete(phone)
+            return None
+
         return OTPRecord(**data)
 
     def delete(self, phone: str) -> None:
-        self._redis.delete(self._key(phone))
 
-    def increment_attempts(self, phone: str) -> int:
+        self._redis.delete(
+            self._key(phone)
+        )
+
+    def increment_attempts(
+        self,
+        phone: str,
+    ) -> int:
+
         import json
+
         key = self._key(phone)
+
         raw = self._redis.get(key)
+
         if raw is None:
             return 0
+
         data = json.loads(raw)
+
         data["attempts"] += 1
+
         ttl = self._redis.ttl(key)
+
         if ttl > 0:
-            self._redis.setex(key, ttl, json.dumps(data))
+            self._redis.setex(
+                key,
+                ttl,
+                json.dumps(data),
+            )
+
         return data["attempts"]
 
-    def get_send_count(self, phone: str) -> int:
-        key = self._rate_key(phone)
-        count = self._redis.get(key)
-        return int(count) if count else 0
+    def get_send_count(
+        self,
+        phone: str,
+    ) -> int:
 
-    def increment_send_count(self, phone: str) -> None:
+        value = self._redis.get(
+            self._rate_key(phone)
+        )
+
+        return int(value) if value else 0
+
+    def increment_send_count(
+        self,
+        phone: str,
+    ) -> None:
+
         key = self._rate_key(phone)
-        pipe = self._redis.pipeline()
-        pipe.incr(key)
-        pipe.expire(key, 3600)  # 1 hour window
-        pipe.execute()
+
+        # Atomic increment.
+        count = self._redis.incr(key)
+
+        # Set expiry only when this is the first request
+        # in the current window.
+        if count == 1:
+            self._redis.expire(
+                key,
+                3600,
+            )
 
 
 # ---------------------------------------------------------------------------
-# Factory
+# Store Factory
 # ---------------------------------------------------------------------------
 
 def _create_store() -> OTPStore:
+
     if OTP_STORE_BACKEND == "redis":
         return RedisOTPStore()
-    return MemoryOTPStore()
+
+    if OTP_STORE_BACKEND == "memory":
+        return MemoryOTPStore()
+
+    raise RuntimeError(
+        f"Unsupported OTP store backend: {OTP_STORE_BACKEND}"
+    )
 
 
 _store = _create_store()
@@ -201,86 +370,218 @@ _sms_provider = get_sms_provider()
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# OTP Generation
 # ---------------------------------------------------------------------------
 
 def generate_otp() -> str:
-    """Generate a cryptographically secure random OTP."""
-    # Use secrets module for cryptographic randomness
-    max_val = 10 ** OTP_LENGTH - 1
-    min_val = 10 ** (OTP_LENGTH - 1)
-    return str(secrets.randbelow(max_val - min_val + 1) + min_val)
+    """
+    Generate cryptographically secure numeric OTP.
+    """
+
+    minimum = 10 ** (OTP_LENGTH - 1)
+    maximum = (10 ** OTP_LENGTH) - 1
+
+    return str(
+        secrets.randbelow(
+            maximum - minimum + 1
+        ) + minimum
+    )
 
 
-def check_rate_limit(phone: str) -> tuple[bool, str]:
+# ---------------------------------------------------------------------------
+# Rate Limiting
+# ---------------------------------------------------------------------------
+
+def check_rate_limit(
+    phone: str,
+) -> tuple[bool, str]:
     """
-    Check if the phone number has exceeded the send rate limit.
-    Returns (is_allowed, error_message).
+    Check hourly OTP send limit.
     """
+
+    phone = normalize_phone(phone)
+
     count = _store.get_send_count(phone)
+
     if count >= OTP_MAX_SEND_PER_HOUR:
-        return False, "Too many OTP requests. Please try again later."
+        return (
+            False,
+            "Too many OTP requests. Please try again later.",
+        )
+
     return True, ""
 
 
-def store_otp(phone: str, otp: str) -> None:
-    """Store OTP with metadata."""
+# ---------------------------------------------------------------------------
+# Store OTP
+# ---------------------------------------------------------------------------
+
+def store_otp(
+    phone: str,
+    otp: str,
+) -> None:
+    """
+    Store hashed OTP and increment send count.
+    """
+
+    phone = normalize_phone(phone)
+
     now = time.time()
+
     record = OTPRecord(
-        otp=otp,
+        otp_hash=hash_otp(phone, otp),
         phone=phone,
         created_at=now,
         expires_at=now + OTP_EXPIRY_SECONDS,
         attempts=0,
-        verified=False,
     )
-    _store.save(phone, record)
-    _store.increment_send_count(phone)
+
+    _store.save(
+        phone,
+        record,
+    )
+
+    _store.increment_send_count(
+        phone
+    )
 
 
-def verify_otp(phone: str, otp: str) -> tuple[bool, str]:
+# ---------------------------------------------------------------------------
+# Send OTP
+# ---------------------------------------------------------------------------
+
+async def send_otp_sms(
+    phone: str,
+    otp: str,
+) -> tuple[bool, str]:
     """
-    Verify OTP and return (is_valid, error_message).
-    Handles attempt counting and expiry.
+    Send OTP through configured SMS provider.
+
+    IMPORTANT:
+        The OTP should be stored only after SMS delivery succeeds.
     """
+
+    try:
+
+        phone = normalize_phone(phone)
+
+        success = await _sms_provider.send(
+            phone,
+            otp,
+        )
+
+        if not success:
+
+            logger.warning(
+                "[OTP] SMS delivery failed for phone ending %s",
+                phone[-4:],
+            )
+
+            return (
+                False,
+                "Failed to send OTP. Please try again.",
+            )
+
+        # Store only after successful SMS submission.
+        store_otp(
+            phone,
+            otp,
+        )
+
+        return True, ""
+
+    except ValueError as exc:
+
+        return False, str(exc)
+
+    except Exception:
+
+        logger.exception(
+            "[OTP] Unexpected error while sending OTP."
+        )
+
+        return (
+            False,
+            "SMS service temporarily unavailable. Please try again.",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Verify OTP
+# ---------------------------------------------------------------------------
+
+def verify_otp(
+    phone: str,
+    otp: str,
+) -> tuple[bool, str]:
+    """
+    Verify OTP.
+
+    Rules:
+
+        - OTP must exist.
+        - OTP must not be expired.
+        - Maximum attempts enforced.
+        - OTP is consumed after successful verification.
+    """
+
+    try:
+        phone = normalize_phone(phone)
+    except ValueError as exc:
+        return False, str(exc)
+
     record = _store.get(phone)
 
     if record is None:
-        return False, "OTP expired or not found. Please request a new one."
 
-    if record.verified:
-        return False, "OTP already used. Please request a new one."
+        return (
+            False,
+            "OTP expired or not found. Please request a new one.",
+        )
 
-    # Check attempt limit
     if record.attempts >= OTP_MAX_ATTEMPTS:
+
         _store.delete(phone)
-        return False, "Too many failed attempts. Please request a new OTP."
 
-    # Increment attempts before checking
-    _store.increment_attempts(phone)
+        return (
+            False,
+            "Too many failed attempts. Please request a new OTP.",
+        )
 
-    if record.otp != otp:
-        remaining = OTP_MAX_ATTEMPTS - (record.attempts + 1)
+    # Increment attempt BEFORE checking OTP.
+    attempts = _store.increment_attempts(phone)
+
+    expected_hash = record.otp_hash
+    actual_hash = hash_otp(phone, otp)
+
+    is_valid = hmac.compare_digest(
+        expected_hash,
+        actual_hash,
+    )
+
+    if not is_valid:
+
+        remaining = OTP_MAX_ATTEMPTS - attempts
+
         if remaining <= 0:
+
             _store.delete(phone)
-            return False, "Too many failed attempts. Please request a new OTP."
-        return False, f"Invalid OTP. {remaining} attempt(s) remaining."
 
-    # Success — mark as verified and consume
+            return (
+                False,
+                "Too many failed attempts. Please request a new OTP.",
+            )
+
+        return (
+            False,
+            f"Invalid OTP. {remaining} attempt(s) remaining.",
+        )
+
+    # Successful OTP verification.
+    # Consume the OTP immediately.
     _store.delete(phone)
-    return True, "OTP verified successfully."
 
-
-async def send_otp_sms(phone: str, otp: str) -> tuple[bool, str]:
-    """
-    Send OTP via the configured SMS provider.
-    Returns (success, error_message).
-    """
-    try:
-        success = await _sms_provider.send(phone, otp)
-        if success:
-            return True, ""
-        return False, "Failed to send OTP. Please try again."
-    except Exception as e:
-        print(f"[OTP] SMS send error for {phone}: {e}")
-        return False, "SMS service temporarily unavailable. Please try again."
+    return (
+        True,
+        "OTP verified successfully.",
+    )

@@ -1,45 +1,109 @@
 """
-JWT token service for session management.
+JWT token service for MoiFlow.
 
-Generates access tokens upon successful OTP verification.
-The mobile app stores these tokens and includes them in
-authenticated API requests.
+Creates and verifies access tokens after successful authentication.
+
+The JWT contains the authenticated user's ID rather than sensitive
+or mutable user information such as phone number or name.
+
+The mobile app sends the token using:
+
+    Authorization: Bearer <token>
 """
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
-from jose import jwt, JWTError
+from jose import JWTError, jwt
 
-from app.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+from app.core.config import (
+    JWT_ALGORITHM,
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES,
+    JWT_SECRET_KEY,
+)
 
 
-def create_access_token(phone: str, name: str) -> str:
+# ---------------------------------------------------------------------------
+# Token creation
+# ---------------------------------------------------------------------------
+
+def create_access_token(
+    user_id: str,
+) -> str:
     """
-    Create a JWT access token for the authenticated user.
+    Create a JWT access token.
+
+    Args:
+        user_id:
+            Unique user ID from the database.
+
+    Returns:
+        Encoded JWT string.
     """
+
     now = datetime.now(timezone.utc)
-    expire = now + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
+
+    expire = now + timedelta(
+        minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+    )
 
     payload = {
-        "sub": phone,
-        "name": name,
+        "sub": str(user_id),
         "iat": now,
         "exp": expire,
         "type": "access",
     }
 
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(
+        payload,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
 
 
-def verify_access_token(token: str) -> dict | None:
+# ---------------------------------------------------------------------------
+# Token verification
+# ---------------------------------------------------------------------------
+
+def verify_access_token(
+    token: str,
+) -> dict[str, Any] | None:
     """
     Verify and decode a JWT access token.
-    Returns the payload dict on success, None on failure/expiry.
+
+    Returns:
+        Payload dictionary if valid.
+
+        None if:
+            - token is malformed
+            - token is expired
+            - signature is invalid
+            - token type is invalid
+            - subject is missing
     """
+
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+
+        # Ensure this is an access token.
         if payload.get("type") != "access":
             return None
+
+        # Every authenticated token must have a subject.
+        user_id = payload.get("sub")
+
+        if not user_id:
+            return None
+
         return payload
+
     except JWTError:
+        return None
+
+    except Exception:
         return None

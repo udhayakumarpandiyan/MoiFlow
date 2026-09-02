@@ -11,5 +11,7 @@ class ParsedVoiceEvent(BaseModel):
     eventName: Optional[str] = None
     eventType: Optional[str] = None
     date: Optional[str] = None
+    time: Optional[str] = None
     venue: Optional[str] = None
-    confidence: float = 0
+    villageName: Optional[str] = None
+    confidence: float = 0.0
