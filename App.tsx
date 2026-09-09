@@ -4,16 +4,19 @@ import {
 } from 'react-native-safe-area-context';
 import RootNavigator from './src/navigation/RootNavigator';
 import { ThemeProvider } from './src/context/ThemeContext';
+import { EntitlementProvider } from './src/context/EntitlementContext';
 
 function App() {
   const isDarkMode = useColorScheme() === 'dark';
 
   return (
     <ThemeProvider>
-      <SafeAreaProvider>
-        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
-        <AppContent />
-      </SafeAreaProvider>
+      <EntitlementProvider>
+        <SafeAreaProvider>
+          <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
+          <AppContent />
+        </SafeAreaProvider>
+      </EntitlementProvider>
     </ThemeProvider>
   );
 }

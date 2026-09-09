@@ -77,7 +77,6 @@ android {
     ndkVersion rootProject.ext.ndkVersion
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
-
     namespace "com.moiflow"
     defaultConfig {
         applicationId "com.moiflow"
@@ -85,6 +84,12 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+
+        // react-native-iap defines a `store` flavor dimension (amazon | play).
+        // Rather than creating app-level flavors (which rename tasks to
+        // installPlayDebug and break `react-native run-android`), we select the
+        // Google Play variant of the library for all app variants here.
+        missingDimensionStrategy "store", "play"
     }
     signingConfigs {
         debug {

@@ -15,7 +15,7 @@ module.exports = {
     '^@theme/(.*)$': '<rootDir>/src/theme/$1',
   },
   transformIgnorePatterns: [
-    'node_modules/(?!(react-native|@react-native|@react-navigation|react-native-sqlite-storage|react-native-safe-area-context|react-native-screens|@react-native-async-storage|react-native-vision-camera|react-native-fs)/)',
+    'node_modules/(?!(react-native|@react-native|@react-navigation|react-native-sqlite-storage|react-native-safe-area-context|react-native-screens|@react-native-async-storage|react-native-vision-camera|react-native-fs|uuid)/)',
   ],
   setupFilesAfterFramework: ['<rootDir>/jest.setup.js'],
 };
