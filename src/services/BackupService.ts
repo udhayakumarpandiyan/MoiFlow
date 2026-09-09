@@ -166,6 +166,12 @@ export class BackupService {
    * Returns a BackupResult with the uploaded DriveFile metadata.
    */
   async backupToGoogleDrive(): Promise<BackupResult> {
+    // Cloud backup is a Premium feature — enforce beyond the UI.
+    {
+      const { assertPremiumFeature } = require('../subscription/featureGuard');
+      const { PremiumFeature } = require('../subscription/subscriptionConfig');
+      assertPremiumFeature(PremiumFeature.CloudBackup);
+    }
     const timestamp = new Date().toISOString();
     try {
       // Sign in to Google (will throw GoogleDriveError on failure)
@@ -303,6 +309,12 @@ export class BackupService {
    * email address.
    */
   async shareWithFamily(email: string): Promise<void> {
+    // Family sharing is a Premium feature — enforce beyond the UI.
+    {
+      const { assertPremiumFeature } = require('../subscription/featureGuard');
+      const { PremiumFeature } = require('../subscription/subscriptionConfig');
+      assertPremiumFeature(PremiumFeature.FamilyMembers);
+    }
     // Perform a backup to Drive first
     const result = await this.backupToGoogleDrive();
 

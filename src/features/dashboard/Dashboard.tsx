@@ -1,4 +1,4 @@
-import React, { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { Suspense, useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Modal,
@@ -22,6 +22,10 @@ import {
   RecentEntry,
   DashboardEvent,
 } from '../../models/Dashboard';
+import { usePremiumGate } from '../../hooks/usePremiumGate';
+import { PremiumFeature } from '../../subscription/subscriptionConfig';
+import { PremiumLockIcon } from '../../components/PremiumLockIcon';
+import { FadeInView } from '../../components/FadeInView';
 const LazyVoiceSearchModal = React.lazy(() => import('./VoiceSearchModal'));
 
 const DashboardScreen = ({ navigation }: any) => {
@@ -57,6 +61,8 @@ const DashboardScreen = ({ navigation }: any) => {
 
   const [voiceSearchVisible, setVoiceSearchVisible] = useState(false);
 
+  const { isPremium, ensurePremium } = usePremiumGate();
+
   const loadDashboard = useCallback(async () => {
     try {
       setError(null);
@@ -72,9 +78,13 @@ const DashboardScreen = ({ navigation }: any) => {
     }
   }, [t]);
 
-  useEffect(() => {
-    loadDashboard();
-  }, [loadDashboard]);
+  // Reload every time the Dashboard gains focus so data stays fresh after
+  // adding/editing/deleting events or entries on other screens.
+  useFocusEffect(
+    useCallback(() => {
+      loadDashboard();
+    }, [loadDashboard]),
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -241,13 +251,18 @@ const DashboardScreen = ({ navigation }: any) => {
 
           <TouchableOpacity
             style={[styles.voiceSearchBtn, { backgroundColor: colors.primaryBg }]}
-            onPress={() => setVoiceSearchVisible(true)}
+            onPress={() =>
+              ensurePremium(PremiumFeature.VoiceSearch, () =>
+                setVoiceSearchVisible(true),
+              )
+            }
             activeOpacity={0.7}
             accessible
             accessibilityLabel={t('voiceSearch.title')}
             accessibilityRole="button"
           >
             <Feather name="mic" size={20} color={colors.primary} />
+            {!isPremium && <PremiumLockIcon />}
           </TouchableOpacity>
         </View>
 
@@ -457,118 +472,122 @@ const DashboardScreen = ({ navigation }: any) => {
         </TouchableOpacity>
 
         {/* Cash Summary */}
-        <Text style={[styles.sectionTitle, styles.sectionSpacing, { color: colors.textPrimary }]}>
-          💰 {t('dashboard.cash')}
-        </Text>
+        <FadeInView delay={60}>
+          <Text style={[styles.sectionTitle, styles.sectionSpacing, { color: colors.textPrimary }]}>
+            💰 {t('dashboard.cash')}
+          </Text>
 
-        <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-          <View style={styles.metricGrid}>
-            <View style={styles.metricItem}>
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                {t('dashboard.totalReceived')}
-              </Text>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <View style={styles.metricGrid}>
+              <View style={styles.metricItem}>
+                <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                  {t('dashboard.totalReceived')}
+                </Text>
 
-              <Text style={[styles.receivedValue, { color: colors.inColor }]}>
-                {formatCash(
-                  summary.totalCashReceived,
-                )}
-              </Text>
+                <Text style={[styles.receivedValue, { color: colors.inColor }]}>
+                  {formatCash(
+                    summary.totalCashReceived,
+                  )}
+                </Text>
+              </View>
+
+              <View style={styles.metricItem}>
+                <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                  {t('dashboard.totalGiven')}
+                </Text>
+
+                <Text style={[styles.givenValue, { color: colors.outColor }]}>
+                  {formatCash(
+                    summary.totalCashGiven,
+                  )}
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.metricItem}>
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                {t('dashboard.totalGiven')}
-              </Text>
+            <View style={[styles.summaryDivider, { backgroundColor: colors.borderLight }]} />
 
-              <Text style={[styles.givenValue, { color: colors.outColor }]}>
-                {formatCash(
-                  summary.totalCashGiven,
-                )}
-              </Text>
+            <View style={styles.balanceGrid}>
+              <View style={styles.balanceItem}>
+                <Text style={[styles.balanceLabel, { color: colors.inColor }]}>
+                  {t('dashboard.toReceive')}
+                </Text>
+
+                <Text style={[styles.receiveBalance, { color: colors.inColor }]}>
+                  {formatCash(cashToReceive)}
+                </Text>
+              </View>
+
+              <View style={styles.balanceItem}>
+                <Text style={[styles.giveLabel, { color: colors.outColor }]}>
+                  {t('dashboard.toGive')}
+                </Text>
+
+                <Text style={[styles.giveBalance, { color: colors.outColor }]}>
+                  {formatCash(cashToGive)}
+                </Text>
+              </View>
             </View>
           </View>
-
-          <View style={[styles.summaryDivider, { backgroundColor: colors.borderLight }]} />
-
-          <View style={styles.balanceGrid}>
-            <View style={styles.balanceItem}>
-              <Text style={[styles.balanceLabel, { color: colors.inColor }]}>
-                {t('dashboard.toReceive')}
-              </Text>
-
-              <Text style={[styles.receiveBalance, { color: colors.inColor }]}>
-                {formatCash(cashToReceive)}
-              </Text>
-            </View>
-
-            <View style={styles.balanceItem}>
-              <Text style={[styles.giveLabel, { color: colors.outColor }]}>
-                {t('dashboard.toGive')}
-              </Text>
-
-              <Text style={[styles.giveBalance, { color: colors.outColor }]}>
-                {formatCash(cashToGive)}
-              </Text>
-            </View>
-          </View>
-        </View>
+        </FadeInView>
 
         {/* Gold Summary */}
-        <Text style={[styles.sectionTitle, styles.sectionSpacing, { color: colors.textPrimary }]}>
-          🪙 {t('dashboard.goldSummary')}
-        </Text>
+        <FadeInView delay={120}>
+          <Text style={[styles.sectionTitle, styles.sectionSpacing, { color: colors.textPrimary }]}>
+            🪙 {t('dashboard.goldSummary')}
+          </Text>
 
-        <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-          <View style={styles.metricGrid}>
-            <View style={styles.metricItem}>
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                {t('dashboard.totalReceived')}
-              </Text>
+          <View style={[styles.summaryCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <View style={styles.metricGrid}>
+              <View style={styles.metricItem}>
+                <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                  {t('dashboard.totalReceived')}
+                </Text>
 
-              <Text style={[styles.goldReceivedValue, { color: colors.gold }]}>
-                {formatGold(
-                  summary.totalGoldReceived,
-                )}
-              </Text>
+                <Text style={[styles.goldReceivedValue, { color: colors.gold }]}>
+                  {formatGold(
+                    summary.totalGoldReceived,
+                  )}
+                </Text>
+              </View>
+
+              <View style={styles.metricItem}>
+                <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
+                  {t('dashboard.totalGiven')}
+                </Text>
+
+                <Text style={[styles.goldGivenValue, { color: colors.goldLight }]}>
+                  {formatGold(
+                    summary.totalGoldGiven,
+                  )}
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.metricItem}>
-              <Text style={[styles.metricLabel, { color: colors.textMuted }]}>
-                {t('dashboard.totalGiven')}
-              </Text>
+            <View style={[styles.summaryDivider, { backgroundColor: colors.borderLight }]} />
 
-              <Text style={[styles.goldGivenValue, { color: colors.goldLight }]}>
-                {formatGold(
-                  summary.totalGoldGiven,
-                )}
-              </Text>
+            <View style={styles.balanceGrid}>
+              <View style={styles.balanceItem}>
+                <Text style={[styles.balanceLabel, { color: colors.gold }]}>
+                  {t('dashboard.toReceive')}
+                </Text>
+
+                <Text style={[styles.goldReceiveBalance, { color: colors.gold }]}>
+                  {formatGold(goldToReceive)}
+                </Text>
+              </View>
+
+              <View style={styles.balanceItem}>
+                <Text style={[styles.giveLabel, { color: colors.goldLight }]}>
+                  {t('dashboard.toGive')}
+                </Text>
+
+                <Text style={[styles.goldGiveBalance, { color: colors.goldLight }]}>
+                  {formatGold(goldToGive)}
+                </Text>
+              </View>
             </View>
           </View>
-
-          <View style={[styles.summaryDivider, { backgroundColor: colors.borderLight }]} />
-
-          <View style={styles.balanceGrid}>
-            <View style={styles.balanceItem}>
-              <Text style={[styles.balanceLabel, { color: colors.gold }]}>
-                {t('dashboard.toReceive')}
-              </Text>
-
-              <Text style={[styles.goldReceiveBalance, { color: colors.gold }]}>
-                {formatGold(goldToReceive)}
-              </Text>
-            </View>
-
-            <View style={styles.balanceItem}>
-              <Text style={[styles.giveLabel, { color: colors.goldLight }]}>
-                {t('dashboard.toGive')}
-              </Text>
-
-              <Text style={[styles.goldGiveBalance, { color: colors.goldLight }]}>
-                {formatGold(goldToGive)}
-              </Text>
-            </View>
-          </View>
-        </View>
+        </FadeInView>
 
         {/* Period Summary */}
         <View style={[styles.sectionHeader, styles.sectionSpacing]}>
@@ -904,7 +923,7 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 0,
-    paddingBottom: 32,
+    paddingBottom: 110,
   },
 
   header: {

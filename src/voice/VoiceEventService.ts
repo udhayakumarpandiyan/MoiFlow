@@ -22,6 +22,10 @@ export class VoiceEventService {
   }
 
   async startListening(onText: (text: string) => void, onError?: (error: string) => void): Promise<void> {
+    // Voice event capture is a Premium feature — enforce beyond the UI.
+    const { assertPremiumFeature } = require('../subscription/featureGuard');
+    const { PremiumFeature } = require('../subscription/subscriptionConfig');
+    assertPremiumFeature(PremiumFeature.VoiceEntry);
     this.recognizer.onResult((text) => {
       onText(text);
     });

@@ -19,6 +19,8 @@ export interface MoiEvent {
   actualExpenses: number;
   invitationsPrinted: number;
   totalInvites: number;
+  /** ISO datetime for a one-time reminder notification (null = no reminder). */
+  notifyAt?: string | null;
   createdAt: string;
   updatedAt: string;
   syncStatus: number;
@@ -34,4 +36,8 @@ export interface CreateEventInput {
   villageName?: string;
   description?: string;
   isActive?: boolean;
+  estimatedCost?: number;
+  actualExpenses?: number;
+  /** ISO datetime for a one-time reminder notification (null = clear reminder). */
+  notifyAt?: string | null;
 }

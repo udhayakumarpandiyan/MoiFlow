@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   TouchableOpacity,
   Text,
@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   ViewStyle,
   TextStyle,
+  Animated,
 } from 'react-native';
 import { useTheme } from '../context/ThemeContext';
 
@@ -34,6 +35,15 @@ export const Button: React.FC<ButtonProps> = ({
 }) => {
   const { colors } = useTheme();
   const isDisabled = disabled || loading;
+  const scale = useRef(new Animated.Value(1)).current;
+
+  const pressTo = (toValue: number) =>
+    Animated.spring(scale, {
+      toValue,
+      useNativeDriver: true,
+      speed: 40,
+      bounciness: 5,
+    }).start();
 
   const variantStyles: Record<ButtonVariant, ViewStyle> = {
     primary:   { backgroundColor: colors.primary },
@@ -53,27 +63,34 @@ export const Button: React.FC<ButtonProps> = ({
 
   return (
     <TouchableOpacity
-      style={[
-        styles.base,
-        variantStyles[variant],
-        fullWidth && styles.fullWidth,
-        isDisabled && styles.disabled,
-        style,
-      ]}
       onPress={onPress}
       disabled={isDisabled}
-      activeOpacity={0.8}
+      activeOpacity={0.9}
+      onPressIn={() => pressTo(0.97)}
+      onPressOut={() => pressTo(1)}
+      style={fullWidth ? styles.fullWidth : undefined}
     >
-      {loading ? (
-        <ActivityIndicator
-          size="small"
-          color={variant === 'outline' || variant === 'ghost' ? colors.primary : colors.textInverse}
-        />
-      ) : (
-        <Text style={[styles.text, variantTextStyles[variant], textStyle]}>
-          {title}
-        </Text>
-      )}
+      <Animated.View
+        style={[
+          styles.base,
+          variantStyles[variant],
+          fullWidth && styles.fullWidth,
+          isDisabled && styles.disabled,
+          { transform: [{ scale }] },
+          style,
+        ]}
+      >
+        {loading ? (
+          <ActivityIndicator
+            size="small"
+            color={variant === 'outline' || variant === 'ghost' ? colors.primary : colors.textInverse}
+          />
+        ) : (
+          <Text style={[styles.text, variantTextStyles[variant], textStyle]}>
+            {title}
+          </Text>
+        )}
+      </Animated.View>
     </TouchableOpacity>
   );
 };

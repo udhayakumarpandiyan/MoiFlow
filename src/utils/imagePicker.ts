@@ -98,12 +98,23 @@ export async function pickImage(
       return null;
     }
 
-    const options = {
-      mediaType: 'photo' as const,
-      quality: 0.8,
-      saveToPhotos: false,
-      includeBase64: false,
-    };
+    // Camera needs `saveToPhotos: true` on some Android versions for the
+    // capture to be written to a readable URI; gallery must not use it.
+    const options =
+      source === 'camera'
+        ? {
+            mediaType: 'photo' as const,
+            quality: 0.8 as const,
+            saveToPhotos: true,
+            includeBase64: false,
+            cameraType: 'back' as const,
+          }
+        : {
+            mediaType: 'photo' as const,
+            quality: 0.8 as const,
+            selectionLimit: 1,
+            includeBase64: false,
+          };
 
     const result = await new Promise<any>((resolve) => {
       if (source === 'camera') {
@@ -113,39 +124,51 @@ export async function pickImage(
       }
     });
 
-    if (result.didCancel || result.errorCode) {
-      if (result.errorCode === 'permission') return null;
-      if (result.didCancel) return 'cancelled';
-      return 'cancelled';
+    if (result.didCancel) return 'cancelled';
+    if (result.errorCode) {
+      // permission / camera_unavailable / others — treat as failure (null) so
+      // the caller can prompt the user. Log the reason for diagnostics.
+      if (__DEV__) {
+        // eslint-disable-next-line no-console
+        console.warn(`[imagePicker] ${source} error:`, result.errorCode, result.errorMessage);
+      }
+      return null;
     }
 
     const asset = result.assets?.[0];
     if (!asset?.uri) return null;
 
-    // Copy to app's invitations directory for persistence
-    const dir = await ensureInvitationDir(eventId);
-    const timestamp = Date.now();
-    const filename = `invitation_${timestamp}.jpg`;
-    const destPath = `${dir}/${filename}`;
+    const sourceUri: string = asset.uri;
 
-    // Handle different URI formats: file:// and content://
-    const sourceUri = asset.uri;
-    const localPath = sourceUri.startsWith('file://') ? sourceUri.replace('file://', '') : sourceUri;
-
+    // Copy to app's invitations directory for persistence.
+    let destPath: string | null = null;
     try {
-      await RNFS.copyFile(localPath, destPath);
-    } catch {
-      // If direct copy fails (e.g., content:// URI), try with original URI
+      const dir = await ensureInvitationDir(eventId);
+      const filename = `invitation_${Date.now()}.jpg`;
+      destPath = `${dir}/${filename}`;
+
+      // RNFS.copyFile accepts file:// and content:// URIs directly. Try the
+      // raw URI first (works for content://), then a stripped file path.
       try {
         await RNFS.copyFile(sourceUri, destPath);
-      } catch (copyErr) {
-        // Return the original URI as-is if copy fails — OCR can still read it
-        return localPath;
+      } catch {
+        const stripped = sourceUri.startsWith('file://')
+          ? sourceUri.replace('file://', '')
+          : sourceUri;
+        await RNFS.copyFile(stripped, destPath);
       }
+    } catch {
+      // Copy failed entirely — fall back to the original URI so OCR can still
+      // read the just-captured image (it may live in a cache dir).
+      return sourceUri;
     }
 
     return destPath;
   } catch (error) {
+    if (__DEV__) {
+      // eslint-disable-next-line no-console
+      console.warn('[imagePicker] unexpected error:', error);
+    }
     return null;
   }
 }

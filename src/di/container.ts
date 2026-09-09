@@ -25,16 +25,24 @@ import { PersonRepository }    from '../repository/sqlite/PersonRepository';
 import { VillageRepository }   from '../repository/sqlite/VillageRepository';
 import { DashboardRepository } from '../repository/sqlite/DashboardRepository';
 import { ReportRepository }    from '../repository/sqlite/ReportRepository';
+import { PendingRepository }   from '../repository/sqlite/PendingRepository';
+import { LoanRepository }      from '../repository/sqlite/LoanRepository';
 import { SyncQueueRepository } from '../repository/sqlite/SyncQueueRepository';
+import { EntitlementRepository } from '../repository/sqlite/EntitlementRepository';
 
 import { EntryService }      from '../services/EntryService';
 import { EventService }      from '../services/EventService';
 import { PersonService }     from '../services/PersonService';
 import { DashboardService }  from '../services/DashboardService';
 import { ReportService }     from '../services/ReportService';
+import { PendingService }    from '../services/PendingService';
+import { LoanService }       from '../services/LoanService';
 import { SyncQueueService }  from '../services/SyncQueueService';
 import { SettingsService }   from '../services/SettingsService';
 import { balanceService }    from '../services/BalanceService';
+
+import { SubscriptionService } from '../subscription/SubscriptionService';
+import { EntitlementService }  from '../subscription/EntitlementService';
 
 // Auth is needed at splash to determine the initial route
 import { authService }       from '../services/AuthService';
@@ -47,15 +55,58 @@ export const personRepository    = new PersonRepository();
 export const villageRepository   = new VillageRepository();
 export const dashboardRepository = new DashboardRepository();
 export const reportRepository    = new ReportRepository();
+export const pendingRepository   = new PendingRepository();
+export const loanRepository      = new LoanRepository();
 export const syncQueueRepository = new SyncQueueRepository();
+export const entitlementRepository = new EntitlementRepository();
+
+// --- Subscription / entitlement ----------------------------------------------
+// SubscriptionService wraps the native react-native-iap billing client. It is
+// safe to instantiate eagerly: the native module is required lazily *inside*
+// the service (require-on-access), so no native code loads until a billing
+// method is actually called. EntitlementService is the single source of truth
+// consumed by both the service layer (limit enforcement) and the UI.
+
+export const subscriptionService = new SubscriptionService(entitlementRepository);
+export const entitlementService  = new EntitlementService(
+  entitlementRepository,
+  subscriptionService,
+  eventRepository,
+  entryRepository,
+  personRepository,
+);
+
+// FirebaseSyncService — deferred: it lazily requires the native Firebase
+// modules only when a sync method is called, and degrades gracefully when they
+// are absent/unconfigured. Premium-gated internally.
+import type { FirebaseSyncService as FirebaseSyncServiceType } from '../subscription/FirebaseSyncService';
+
+let _firebaseSyncService: FirebaseSyncServiceType | null = null;
+export const firebaseSyncService: FirebaseSyncServiceType = new Proxy(
+  {} as FirebaseSyncServiceType,
+  {
+    get(_target, prop) {
+      if (!_firebaseSyncService) {
+        const { FirebaseSyncService } = require('../subscription/FirebaseSyncService');
+        _firebaseSyncService = new FirebaseSyncService(
+          syncQueueRepository,
+          () => authService.getUserPhone(),
+        );
+      }
+      return (_firebaseSyncService as any)[prop];
+    },
+  },
+);
 
 // --- Critical Services (eagerly initialized) ---------------------------------
 
-export const entryService     = new EntryService(entryRepository, personRepository, syncQueueRepository);
-export const eventService     = new EventService(eventRepository, syncQueueRepository);
-export const personService    = new PersonService(personRepository);
+export const entryService     = new EntryService(entryRepository, personRepository, syncQueueRepository, entitlementService);
+export const eventService     = new EventService(eventRepository, syncQueueRepository, entitlementService);
+export const personService    = new PersonService(personRepository, entitlementService);
 export const dashboardService = new DashboardService(dashboardRepository);
 export const reportService    = new ReportService(reportRepository);
+export const pendingService   = new PendingService(pendingRepository);
+export const loanService      = new LoanService(loanRepository, syncQueueRepository);
 export const syncQueueService = new SyncQueueService(syncQueueRepository);
 export const settingsService  = new SettingsService();
 

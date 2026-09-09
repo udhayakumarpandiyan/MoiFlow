@@ -42,10 +42,14 @@ export const CREATE_EVENTS_TABLE = `
     owner_type       TEXT NOT NULL DEFAULT 'OTHER_PERSON'
                        CHECK (owner_type IN ('MY_EVENT', 'OTHER_PERSON')),
     date             TEXT,
+    time             TEXT,
     venue            TEXT,
     village_name     TEXT,
     description      TEXT,
     is_active        INTEGER NOT NULL DEFAULT 0,
+    estimated_cost   REAL NOT NULL DEFAULT 0,
+    actual_expenses  REAL NOT NULL DEFAULT 0,
+    notify_at        TEXT,
     created_at       TEXT NOT NULL,
     updated_at       TEXT NOT NULL,
     sync_status      INTEGER NOT NULL DEFAULT 0
@@ -115,6 +119,84 @@ export const CREATE_DB_MIGRATIONS_TABLE = `
   );
 `;
 
+// Pending Payments & Receivables — append-only settlement ledger + reminders.
+// (Also created by migration v9; duplicated here so fresh installs have them.)
+export const CREATE_SETTLEMENTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS settlements (
+    id            TEXT PRIMARY KEY,
+    direction     TEXT NOT NULL CHECK (direction IN ('RECEIVABLE', 'PAYABLE')),
+    person_id     TEXT NOT NULL,
+    person_name   TEXT NOT NULL,
+    event_id      TEXT,
+    settled_cash  REAL NOT NULL DEFAULT 0,
+    settled_gold  REAL NOT NULL DEFAULT 0,
+    note          TEXT,
+    settled_at    TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+  );
+`;
+
+export const CREATE_PENDING_REMINDERS_TABLE = `
+  CREATE TABLE IF NOT EXISTS pending_reminders (
+    key        TEXT PRIMARY KEY,
+    person_id  TEXT NOT NULL,
+    event_id   TEXT,
+    direction  TEXT,
+    remind_at  TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+`;
+
+// ---------------------------------------------------------------------------
+// FINANCE MODULE — loans + append-only loan payments.
+// Independent from the Moi domain. (Also created by migration v10; duplicated
+// here so fresh installs have them.) The original loan principal/interest are
+// never mutated; every repayment is a new row in loan_payments.
+// ---------------------------------------------------------------------------
+
+export const CREATE_LOANS_TABLE = `
+  CREATE TABLE IF NOT EXISTS loans (
+    id             TEXT PRIMARY KEY,
+    direction      TEXT NOT NULL DEFAULT 'LENT'
+                     CHECK (direction IN ('LENT', 'BORROWED')),
+    loan_type      TEXT NOT NULL DEFAULT 'PERSONAL'
+                     CHECK (loan_type IN ('PERSONAL','BUSINESS','CAR','GOLD','AGRICULTURAL','HOME','EDUCATION','OTHER')),
+    party_type     TEXT NOT NULL DEFAULT 'PERSON'
+                     CHECK (party_type IN ('PERSON','BUSINESS')),
+    party_name     TEXT NOT NULL,
+    party_village  TEXT,
+    party_phone    TEXT,
+    party_contact  TEXT,
+    principal      REAL NOT NULL DEFAULT 0,
+    interest_rate  REAL NOT NULL DEFAULT 0,
+    interest_type  TEXT NOT NULL DEFAULT 'NONE'
+                     CHECK (interest_type IN ('NONE','SIMPLE','FLAT','REDUCING','COMPOUND')),
+    loan_date      TEXT NOT NULL,
+    due_date       TEXT,
+    status         TEXT NOT NULL DEFAULT 'PENDING'
+                     CHECK (status IN ('PENDING','EXPECTED','SETTLED','BAD_DEBT')),
+    notes          TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
+    sync_status    INTEGER NOT NULL DEFAULT 0
+  );
+`;
+
+export const CREATE_LOAN_PAYMENTS_TABLE = `
+  CREATE TABLE IF NOT EXISTS loan_payments (
+    id             TEXT PRIMARY KEY,
+    loan_id        TEXT NOT NULL,
+    principal_paid REAL NOT NULL DEFAULT 0,
+    interest_paid  REAL NOT NULL DEFAULT 0,
+    payment_date   TEXT NOT NULL,
+    note           TEXT,
+    created_at     TEXT NOT NULL,
+    sync_status    INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
+  );
+`;
+
 // ---------------------------------------------------------------------------
 // INDEXES
 // ---------------------------------------------------------------------------
@@ -132,4 +214,7 @@ export const CREATE_INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_persons_name        ON persons(name);`,
   `CREATE INDEX IF NOT EXISTS idx_persons_village     ON persons(village_name);`,
   `CREATE INDEX IF NOT EXISTS idx_sync_queue_entity   ON sync_queue(entity_type, entity_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_loans_direction      ON loans(direction);`,
+  `CREATE INDEX IF NOT EXISTS idx_loans_status         ON loans(status);`,
+  `CREATE INDEX IF NOT EXISTS idx_loan_payments_loan   ON loan_payments(loan_id);`,
 ];

@@ -15,12 +15,25 @@ import { authService } from '../services/AuthService';
 import { useTheme } from '../context/ThemeContext';
 import { determineRoute } from '../navigation/determineRoute';
 import i18n from '../i18n/index';
+import { GradientBackground } from '../components/GradientBackground';
+
+/**
+ * Splash gradient, tuned to the MoiFlow logo and the active theme.
+ *
+ * Light mode: a soft brand mint → cool-blue wash that echoes the logo's green
+ * swoosh and navy wordmark, kept light so the dark logo/tagline stay legible.
+ * Dark mode: a deep teal → navy wash so the splash matches night mode instead
+ * of flashing a bright screen.
+ */
+const SPLASH_GRADIENT_LIGHT = ['#A7E3C6', '#BEE6D6', '#C9DDEC', '#B4CCE6'];
+const SPLASH_GRADIENT_DARK = ['#0B1F1B', '#0F2A2E', '#122536', '#0C1A2E'];
 
 type NavProp = { replace: (screen: string, params?: Record<string, unknown>) => void };
 
 const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
   const { t } = useTranslation();
-  const { colors } = useTheme();
+  const { colors, isDark } = useTheme();
+  const gradient = isDark ? SPLASH_GRADIENT_DARK : SPLASH_GRADIENT_LIGHT;
 
   // Animations
   const iconScale = useRef(new Animated.Value(0.6)).current;
@@ -97,16 +110,16 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
   });
 
   return (
-    <View style={styles.container}>
+    <GradientBackground colors={gradient} steps={28} style={styles.container}>
       <StatusBar
-        barStyle="dark-content"
-        backgroundColor="#FFFFFF"
-        translucent={false}
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor="transparent"
+        translucent
       />
 
       {/* Main content */}
       <View style={styles.content}>
-        {/* Logo */}
+        {/* App icon tile — reads cleanly on both light and dark gradients */}
         <Animated.View
           style={[
             styles.iconContainer,
@@ -117,27 +130,25 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
           ]}
         >
           <Image
-            source={require('../assets/logo/moiflow-logo-temp.png')}
-            style={styles.splashLogo}
+            source={require('../assets/app-icon/moiflow-app-icon-192.png')}
+            style={styles.appIcon}
             resizeMode="contain"
           />
         </Animated.View>
 
-        {/* Brand name */}
-        {/* <Animated.View
+        {/* Brand wordmark */}
+        <Animated.View
           style={{
             opacity: brandOpacity,
             transform: [{ translateY: brandY }],
+            alignItems: 'center',
           }}
         >
-          <Text style={[styles.brandText, { color: colors.primary }]}>
-            <Text style={styles.brandMoi}>Moi</Text>
-            <Text style={styles.brandFlow}>Flow</Text>
+          <Text style={styles.brandText}>
+            <Text style={[styles.brandMoi, { color: isDark ? '#F1F9F7' : '#0A2540' }]}>Moi</Text>
+            <Text style={[styles.brandFlow, { color: colors.primary }]}>Flow</Text>
           </Text>
-          <Text style={[styles.brandTamil, { color: colors.textMuted }]}>
-            ?????????
-          </Text>
-        </Animated.View> */}
+        </Animated.View>
 
         {/* Tagline */}
         <Animated.View style={{ opacity: taglineOpacity }}>
@@ -150,7 +161,7 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
       {/* Bottom section */}
       <View style={styles.bottomSection}>
         {/* Progress bar */}
-        <View style={[styles.progressContainer, { backgroundColor: colors.borderLight }]}>
+        <View style={[styles.progressContainer, { backgroundColor: 'rgba(9,165,100,0.15)' }]}>
           <Animated.View
             style={[
               styles.progressBar,
@@ -160,7 +171,7 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
         </View>
         <Text style={[styles.versionText, { color: colors.textDisabled }]}>v1.0.0</Text>
       </View>
-    </View>
+    </GradientBackground>
   );
 };
 
@@ -169,7 +180,6 @@ export default SplashScreen;
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
   content: {
     flex: 1,
@@ -178,34 +188,36 @@ const styles = StyleSheet.create({
     gap: 16,
   },
   iconContainer: {
-    marginBottom: 12,
+    marginBottom: 10,
+    borderRadius: 28,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 12,
   },
-  splashLogo: {
-    width: 200,
-    height: 60,
+  appIcon: {
+    width: 112,
+    height: 112,
+    borderRadius: 26,
   },
   brandText: {
     textAlign: 'center',
-    fontSize: 30,
-    letterSpacing: 0.5,
+    fontSize: 34,
+    letterSpacing: 0.3,
   },
   brandMoi: {
     fontWeight: '800',
   },
   brandFlow: {
-    fontWeight: '400',
-  },
-  brandTamil: {
-    textAlign: 'center',
-    fontSize: 13,
-    fontWeight: '500',
-    marginTop: 4,
-    letterSpacing: 1.5,
+    fontWeight: '700',
   },
   tagline: {
     textAlign: 'center',
     fontSize: 13,
     fontWeight: '500',
+    marginTop: 2,
+    letterSpacing: 0.3,
   },
   bottomSection: {
     position: 'absolute',
@@ -227,6 +239,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   versionText: {
+    color: '#111111',
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.5,

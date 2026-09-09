@@ -4,6 +4,7 @@ import { LazyScreen } from '../../../components/LazyScreen';
 
 const LazySettings = React.lazy(() => import('../../../features/settings/Settings'));
 const LazyPinSetup = React.lazy(() => import('../../../screens/PinSetupScreen'));
+const LazyPremium = React.lazy(() => import('../../../features/premium/PremiumScreen'));
 
 const Stack = createNativeStackNavigator();
 
@@ -19,6 +20,12 @@ const PinSetupScreenWrapper = (props: any) => (
   </LazyScreen>
 );
 
+const PremiumScreenWrapper = (props: any) => (
+  <LazyScreen>
+    <LazyPremium {...props} />
+  </LazyScreen>
+);
+
 const SettingsStack = () => (
   <Stack.Navigator>
     <Stack.Screen
@@ -29,6 +36,11 @@ const SettingsStack = () => (
     <Stack.Screen
       name="PinSetup"
       component={PinSetupScreenWrapper}
+      options={{ headerShown: false }}
+    />
+    <Stack.Screen
+      name="Premium"
+      component={PremiumScreenWrapper}
       options={{ headerShown: false }}
     />
   </Stack.Navigator>

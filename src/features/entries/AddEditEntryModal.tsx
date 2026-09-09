@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+﻿import React, { useEffect, useState, useCallback } from 'react';
 import {
   Modal,
   View,
@@ -9,6 +9,7 @@ import {
   ScrollView,
   TouchableOpacity,
   Alert,
+  useWindowDimensions,
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import DateTimePicker from '@react-native-community/datetimepicker';
@@ -48,6 +49,10 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const { height: windowHeight } = useWindowDimensions();
+  // Definite sheet height so the ScrollView shrinks and the sticky footer
+  // (Save button) stays visible on Android.
+  const sheetMaxHeight = Math.round(windowHeight * 0.9);
   const isEdit = !!entry;
 
   const [entryType, setEntryType] = useState<EntryType>('OWN_EVENT');
@@ -210,8 +215,8 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
             <View style={[styles.pickerSheet, { backgroundColor: colors.surface }]}>
               <View style={[styles.pickerHeader, { borderBottomColor: colors.border }]}>
                 <Text style={[styles.pickerTitle, { color: colors.textPrimary }]}>{t('entries.selectEvent')}</Text>
-                <TouchableOpacity onPress={() => setShowEventPicker(false)}>
-                  <Text style={[styles.pickerClose, { color: colors.textMuted }]}>?</Text>
+                <TouchableOpacity onPress={() => setShowEventPicker(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Feather name="x" size={18} color={colors.textMuted} />
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
@@ -236,7 +241,7 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
           </View>
         ) : null}
 
-        <View style={[styles.sheet, { backgroundColor: colors.surface }]}>
+        <View style={[styles.sheet, { backgroundColor: colors.surface, maxHeight: sheetMaxHeight }]}>
           <View style={styles.header}>
             <View>
               <View style={styles.titleRow}>
@@ -249,8 +254,14 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
                 {entryType === 'OWN_EVENT' ? t('entries.inMoneyReceived') : t('entries.outMoneyGiven')}
               </Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.background }]}>
-              <Text style={[styles.closeBtnText, { color: colors.textMuted }]}>?</Text>
+            <TouchableOpacity
+              onPress={onClose}
+              style={[styles.closeBtn, { backgroundColor: colors.background }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel={t('common.close')}
+              accessibilityRole="button"
+            >
+              <Feather name="x" size={18} color={colors.textMuted} />
             </TouchableOpacity>
           </View>
 
@@ -262,7 +273,7 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
             </View>
           ) : null}
 
-          <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>{t('entries.eventOptional')}</Text>
             {entryType === 'OWN_EVENT' ? (
@@ -270,7 +281,7 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
                 <Text style={selectedEvent ? [styles.eventSelectorText, { color: colors.textPrimary }] : [styles.eventSelectorPlaceholder, { color: colors.textDisabled }]}>
                   {selectedEvent ? selectedEvent.name : t('entries.selectEventPlaceholder')}
                 </Text>
-                <Text style={[styles.eventSelectorArrow, { color: colors.textMuted }]}>?</Text>
+                <Feather name="chevron-down" size={16} color={colors.textMuted} />
               </TouchableOpacity>
             ) : (
               <InputField
@@ -352,6 +363,10 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
               multiline
             />
 
+          </ScrollView>
+
+          {/* Sticky footer — Save button always visible */}
+          <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.surface }]}>
             <View style={styles.actions}>
               {isEdit ? (
                 <Button
@@ -366,10 +381,11 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
                 title={saving ? t('entries.saving') : isEdit ? t('entries.updateEntry') : t('entries.saveEntry')}
                 onPress={handleSave}
                 loading={saving}
-                style={{ flex: isEdit ? 2 : 1 }}
+                fullWidth={!isEdit}
+                style={isEdit ? { flex: 2 } : undefined}
               />
             </View>
-          </ScrollView>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -383,7 +399,14 @@ const styles = StyleSheet.create({
   sheet: {
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 22, borderTopRightRadius: 22,
-    maxHeight: '94%', paddingHorizontal: 20, paddingTop: 20, paddingBottom: 30,
+    // maxHeight applied inline (screen * 0.9) as a definite pixel value.
+    paddingHorizontal: 20, paddingTop: 20,
+  },
+  scroll: { flexShrink: 1 },
+  footer: {
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
   },
   header: {
     flexDirection: 'row', justifyContent: 'space-between',
@@ -420,7 +443,7 @@ const styles = StyleSheet.create({
   eventSelectorText: { fontSize: 14, color: Colors.textPrimary },
   eventSelectorPlaceholder: { fontSize: 14, color: Colors.textDisabled },
   eventSelectorArrow: { color: Colors.textMuted, fontSize: 13 },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 24 },
+  actions: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center' },
 
   pickerOverlay: {
     ...StyleSheet.absoluteFill, backgroundColor: Colors.overlay,

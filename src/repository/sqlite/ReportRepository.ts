@@ -79,7 +79,11 @@ export class ReportRepository implements IReportRepository {
     const [summaryResult] = await db.executeSql(
       `SELECT
          e.id AS event_id, e.name AS event_name, e.date AS event_date, e.owner_type,
+         e.venue AS event_venue, e.village_name AS event_village,
+         e.estimated_cost, e.actual_expenses, e.invitations_printed, e.total_invites,
          COUNT(en.id) AS total_entries,
+         COUNT(DISTINCT COALESCE(en.person_id, en.person_name)) AS total_persons,
+         COUNT(DISTINCT CASE WHEN en.village_name IS NOT NULL AND en.village_name != '' THEN en.village_name END) AS total_villages,
          COALESCE(SUM(CASE WHEN en.entry_type = 'OWN_EVENT'   THEN en.cash_amount ELSE 0 END), 0) AS cash_received,
          COALESCE(SUM(CASE WHEN en.entry_type = 'OTHER_EVENT' THEN en.cash_amount ELSE 0 END), 0) AS cash_given,
          COALESCE(SUM(CASE WHEN en.entry_type = 'OWN_EVENT'   THEN en.gold_weight ELSE 0 END), 0) AS gold_received,
@@ -100,12 +104,20 @@ export class ReportRepository implements IReportRepository {
       eventId: String(sr.event_id),
       eventName: String(sr.event_name),
       eventDate: sr.event_date ? String(sr.event_date) : null,
+      eventVenue: sr.event_venue ? String(sr.event_venue) : null,
+      eventVillageName: sr.event_village ? String(sr.event_village) : null,
       ownerType: String(sr.owner_type ?? 'OTHER_PERSON'),
       totalEntries: Number(sr.total_entries) || 0,
+      totalPersons: Number(sr.total_persons) || 0,
+      totalVillages: Number(sr.total_villages) || 0,
+      invitationsPrinted: Number(sr.invitations_printed) || 0,
+      totalInvites: Number(sr.total_invites) || 0,
       totalCashReceived: Number(sr.cash_received) || 0,
       totalGoldReceived: Number(sr.gold_received) || 0,
       totalCashGiven: Number(sr.cash_given) || 0,
       totalGoldGiven: Number(sr.gold_given) || 0,
+      estimatedCost: Number(sr.estimated_cost) || 0,
+      actualExpenses: Number(sr.actual_expenses) || 0,
     };
 
     // Entries with optional filter
@@ -220,6 +232,7 @@ export class ReportRepository implements IReportRepository {
       `SELECT
          village_name,
          COUNT(*) AS entry_count,
+         COUNT(DISTINCT COALESCE(person_id, person_name)) AS person_count,
          COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_in,
          COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN cash_amount ELSE 0 END), 0) AS cash_out,
          COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN gold_weight ELSE 0 END), 0) AS gold_in,
@@ -237,6 +250,7 @@ export class ReportRepository implements IReportRepository {
       reports.push({
         villageName: String(row.village_name),
         entryCount: Number(row.entry_count) || 0,
+        personCount: Number(row.person_count) || 0,
         totalCashIn: Number(row.cash_in) || 0,
         totalGoldIn: Number(row.gold_in) || 0,
         totalCashOut: Number(row.cash_out) || 0,

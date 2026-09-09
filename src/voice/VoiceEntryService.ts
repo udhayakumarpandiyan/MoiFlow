@@ -2,6 +2,8 @@
 import { TamilEntryParser }      from './TamilEntryParser';
 import { VoiceEntryResult }      from '../types/VoiceEntryResult';
 import { parseVoiceText }        from '../api/NLUApi';
+import { assertPremiumFeature }  from '../subscription/featureGuard';
+import { PremiumFeature }        from '../subscription/subscriptionConfig';
 
 /**
  * Orchestrates mic capture + NLU parsing.
@@ -29,7 +31,13 @@ export class VoiceEntryService {
     return TamilSpeechRecognizer.isAvailable();
   }
 
-  async startListening(onText: (text: string) => void, onError?: (error: string) => void): Promise<void> {
+  async startListening(
+    onText: (text: string) => void,
+    onError?: (error: string) => void,
+    locale: string = 'ta-IN',
+  ): Promise<void> {
+    // Voice entry is a Premium feature — enforce beyond the UI.
+    assertPremiumFeature(PremiumFeature.VoiceEntry);
     this.recognizer.onResult((text) => {
       onText(text);
     });
@@ -37,7 +45,7 @@ export class VoiceEntryService {
       const msg = typeof err === 'string' ? err : err?.message ?? 'Speech recognition error';
       onError?.(msg);
     });
-    await this.recognizer.start();
+    await this.recognizer.start(locale);
   }
 
   async stopListening(): Promise<void> {
@@ -45,24 +53,44 @@ export class VoiceEntryService {
   }
 
   /**
-   * Parse recognised text using the Python NLU backend.
-   * Falls back to local regex parser if the server is unreachable.
+   * Parse recognised text into an entry.
+   *
+   * Strategy:
+   *   - Always run the local Tamil parser, which is the ONLY source of
+   *     person name and village name (the backend NLU currently returns
+   *     personName = null).
+   *   - Try the backend NLU for direction/cash/gold; if it succeeds, use its
+   *     amounts when they are present, otherwise fall back to the local values.
+   *   - This guarantees person/village are prefilled even when the backend is
+   *     reachable, and everything still works fully offline.
    */
   async parse(text: string): Promise<VoiceEntryResult> {
     if (!text.trim()) throw new Error('Text is empty');
 
+    const local = this.localParser.parse(text);
+
     try {
-      return await parseVoiceText(text);
+      const remote = await parseVoiceText(text);
+
+      return {
+        // Person / village: prefer whichever is non-empty (local is primary).
+        personName: local.personName ?? remote.personName ?? null,
+        villageName: local.villageName ?? remote.villageName ?? null,
+        // Direction / amounts: prefer backend values when present.
+        direction: remote.direction ?? local.direction,
+        cashAmount: remote.cashAmount > 0 ? remote.cashAmount : local.cashAmount,
+        goldWeight: remote.goldWeight > 0 ? remote.goldWeight : local.goldWeight,
+        confidence: Math.max(remote.confidence, local.confidence),
+      };
     } catch (networkErr) {
-      //console.warn('[VoiceEntryService] NLU server unreachable — using local parser:', networkErr);
-      const local = this.localParser.parse(text);
+      // Backend unreachable — use the local parser result directly.
       return {
         personName: local.personName ?? null,
         villageName: local.villageName ?? null,
-        direction:  local.direction,
+        direction: local.direction,
         cashAmount: local.cashAmount,
         goldWeight: local.goldWeight,
-        confidence: local.confidence * 0.7, // lower confidence for local parse
+        confidence: local.confidence * 0.7,
       };
     }
   }

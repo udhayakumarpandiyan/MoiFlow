@@ -17,10 +17,13 @@ import { useTranslation } from 'react-i18next';
 import RNFS from 'react-native-fs';
 import RNShare, { Social as ShareSocial } from 'react-native-share';
 
-import { eventService, ocrService } from '../../services';
+import { eventService, ocrService, entryService } from '../../services';
 import { MoiEvent } from '../../models/Event';
 import { useTheme, ThemeColors } from '../../context/ThemeContext';
 import Feather from '@react-native-vector-icons/feather';
+import { usePremiumGate } from '../../hooks/usePremiumGate';
+import { PremiumFeature } from '../../subscription/subscriptionConfig';
+import { PremiumLockIcon } from '../../components/PremiumLockIcon';
 import { Spacing } from '../../theme/typography';
 import { formatDate, formatCash } from '../../utils/format';
 import { SegmentedControl } from '../../components/SegmentedControl';
@@ -69,6 +72,7 @@ type EventFilter = 'UPCOMING' | 'PAST';
 const EventsScreen: React.FC<Props> = ({ navigation }) => {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const { isPremium, ensurePremium } = usePremiumGate();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   // Only 2 tabs: My Events and Other Events
@@ -83,6 +87,10 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
   ], [t]);
 
   const [allEvents, setAllEvents] = useState<MoiEvent[]>([]);
+
+  // Per-event finance totals keyed by event id, aggregated from entries.
+  type EventFinance = { cashIn: number; cashOut: number; goldIn: number; goldOut: number };
+  const [financeByEvent, setFinanceByEvent] = useState<Record<string, EventFinance>>({});
 
   const [tab, setTab] = useState<string>('MY_EVENT');
   const [eventFilter, setEventFilter] = useState<EventFilter>('UPCOMING');
@@ -120,6 +128,31 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
       try {
         const events = await eventService.getAllEvents();
         setAllEvents(events);
+
+        // Aggregate per-event finance totals from all entries (offline, local).
+        try {
+          const entries = await entryService.getEntries();
+          const totals: Record<string, EventFinance> = {};
+          for (const entry of entries) {
+            const eid = entry.eventId;
+            if (!eid) continue;
+            if (!totals[eid]) {
+              totals[eid] = { cashIn: 0, cashOut: 0, goldIn: 0, goldOut: 0 };
+            }
+            const cash = Number(entry.cashAmount) || 0;
+            const gold = Number(entry.goldWeight) || 0;
+            if (entry.entryType === 'OWN_EVENT') {
+              totals[eid].cashIn += cash;
+              totals[eid].goldIn += gold;
+            } else {
+              totals[eid].cashOut += cash;
+              totals[eid].goldOut += gold;
+            }
+          }
+          setFinanceByEvent(totals);
+        } catch {
+          setFinanceByEvent({});
+        }
       } catch (err) {
       } finally {
         setLoading(false);
@@ -251,19 +284,26 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
   };
 
   const handleScanInvitation = (event?: MoiEvent) => {
-    Alert.alert(
-      t('events.invitationScan'),
-      t('events.invitationScanPrompt'),
-      [
-        { text: t('common.cancel'), style: 'cancel' },
-        { text: t('events.camera'), onPress: () => captureInvitationImage('camera', event) },
-        { text: t('events.gallery'), onPress: () => captureInvitationImage('gallery', event) },
-      ],
-    );
+    // OCR invitation scanning is a Premium feature. Gate with an upsell.
+    ensurePremium(PremiumFeature.OcrScanner, () => {
+      Alert.alert(
+        t('events.invitationScan'),
+        t('events.invitationScanPrompt'),
+        [
+          { text: t('common.cancel'), style: 'cancel' },
+          { text: t('events.camera'), onPress: () => captureInvitationImage('camera', event) },
+          { text: t('events.gallery'), onPress: () => captureInvitationImage('gallery', event) },
+        ],
+      );
+    });
   };
 
   const handleVoiceEvent = () => {
-    setVoiceEventModalVisible(true);
+    // Voice-driven event creation is a Premium feature. Show a friendly upsell
+    // for Free users instead of opening the modal (which would otherwise throw).
+    ensurePremium(PremiumFeature.VoiceEntry, () =>
+      setVoiceEventModalVisible(true),
+    );
   };
 
   const handleVoiceEventParsed = (result: ParsedVoiceEvent) => {
@@ -544,6 +584,8 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
     const status = getEventStatus(item);
     const tasks = completedTasks[item.id] ?? [];
     const completedTaskCount = tasks.length;
+    // Sharing an invitation only makes sense for current/upcoming events.
+    const isPastEvent = item.date ? new Date(item.date) < today : false;
 
     return (
       <View style={[styles.card, item.isActive && styles.cardActive]}>
@@ -574,10 +616,20 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
 
         {/* Event details summary (always visible) */}
         <View style={styles.details}>
+          <View style={styles.detailItem}>
+            <Text style={styles.detailLabel}>{t('events.eventName')}</Text>
+            <Text style={styles.detailValue}>{item.name}</Text>
+          </View>
           {item.date && (
             <View style={styles.detailItem}>
               <Text style={styles.detailLabel}>{t('events.date')}</Text>
               <Text style={styles.detailValue}>{formatDate(item.date)}</Text>
+            </View>
+          )}
+          {item.time && (
+            <View style={styles.detailItem}>
+              <Text style={styles.detailLabel}>{t('events.time')}</Text>
+              <Text style={styles.detailValue}>{item.time}</Text>
             </View>
           )}
           {item.venue && (
@@ -607,43 +659,57 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
                 <TouchableOpacity style={styles.smallAction} onPress={() => handleViewInvitation(item)}>
                   <Text style={styles.smallActionText}>👁️ {t('events.view')}</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.smallAction} onPress={() => handleShareInviteWhatsApp(item)}>
-                  <Text style={styles.smallActionText}>📲 {t('events.share')}</Text>
-                </TouchableOpacity>
+                {!isPastEvent && (
+                  <TouchableOpacity style={styles.smallAction} onPress={() => handleShareInviteWhatsApp(item)}>
+                    <Text style={styles.smallActionText}>📲 {t('events.share')}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
             {/* Financial summary */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>{t('events.financeSummary')}</Text>
-              <View style={styles.financeGrid}>
-                <View style={styles.financeItem}>
-                  <Text style={styles.financeLabel}>{t('events.cashReceived')}</Text>
-                  <Text style={[styles.financeValue, { color: colors.inColor }]}>₹0</Text>
+            {(() => {
+              const fin = financeByEvent[item.id] ?? { cashIn: 0, cashOut: 0, goldIn: 0, goldOut: 0 };
+              return (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>{t('events.financeSummary')}</Text>
+                  <View style={styles.financeGrid}>
+                    <View style={styles.financeItem}>
+                      <Text style={styles.financeLabel}>{t('events.cashReceived')}</Text>
+                      <Text style={[styles.financeValue, { color: colors.inColor }]}>{formatCash(fin.cashIn)}</Text>
+                    </View>
+                    <View style={styles.financeItem}>
+                      <Text style={styles.financeLabel}>{t('events.cashGiven')}</Text>
+                      <Text style={[styles.financeValue, { color: colors.outColor }]}>{formatCash(fin.cashOut)}</Text>
+                    </View>
+                    <View style={styles.financeItem}>
+                      <Text style={styles.financeLabel}>{t('events.goldReceived')}</Text>
+                      <Text style={[styles.financeValue, { color: colors.gold }]}>{fin.goldIn.toFixed(2)} g</Text>
+                    </View>
+                    <View style={styles.financeItem}>
+                      <Text style={styles.financeLabel}>{t('events.goldGiven')}</Text>
+                      <Text style={[styles.financeValue, { color: colors.outColor }]}>{fin.goldOut.toFixed(2)} g</Text>
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.financeItem}>
-                  <Text style={styles.financeLabel}>{t('events.cashGiven')}</Text>
-                  <Text style={[styles.financeValue, { color: colors.outColor }]}>₹0</Text>
-                </View>
-                <View style={styles.financeItem}>
-                  <Text style={styles.financeLabel}>{t('events.goldReceived')}</Text>
-                  <Text style={[styles.financeValue, { color: colors.gold }]}>0 g</Text>
-                </View>
-                <View style={styles.financeItem}>
-                  <Text style={styles.financeLabel}>{t('events.goldGiven')}</Text>
-                  <Text style={[styles.financeValue, { color: colors.outColor }]}>0 g</Text>
-                </View>
-              </View>
-            </View>
+              );
+            })()}
 
-            {/* Cost estimation */}
+            {/* Cost estimation & expenses */}
             <View style={styles.section}>
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionTitle}>{t('events.costEstimation')}</Text>
+                <TouchableOpacity onPress={() => { setEditingEvent(item); setEventModalVisible(true); }}>
+                  <Text style={[styles.smallActionText, { color: colors.primary }]}>✎ {t('events.addExpenses')}</Text>
+                </TouchableOpacity>
               </View>
               <View style={styles.costSummary}>
                 <Text style={styles.costLabel}>{t('events.estimatedCost')}</Text>
-                <Text style={styles.costValue}>{formatCash(0)}</Text>
+                <Text style={styles.costValue}>{formatCash(item.estimatedCost || 0)}</Text>
+              </View>
+              <View style={styles.costSummary}>
+                <Text style={styles.costLabel}>{t('events.actualExpenses')}</Text>
+                <Text style={[styles.costValue, { color: colors.outColor }]}>{formatCash(item.actualExpenses || 0)}</Text>
               </View>
             </View>
 
@@ -966,6 +1032,7 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
           activeOpacity={0.85}
         >
           <Feather name="mic" size={20} color={colors.primary} />
+          {!isPremium && <PremiumLockIcon />}
         </TouchableOpacity>
       )}
 
@@ -1615,7 +1682,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   fabVoice: {
     position: 'absolute',
-    bottom: 88,
+    bottom: 204,
     right: 20,
     width: 52,
     height: 52,
@@ -1634,7 +1701,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 140,
     right: 20,
     width: 52,
     height: 52,

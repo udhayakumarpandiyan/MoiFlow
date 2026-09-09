@@ -68,6 +68,7 @@ export interface EventReport {
 export interface VillageReport {
   villageName: string;
   entryCount: number;
+  personCount: number;
   totalCashIn: number;
   totalGoldIn: number;
   totalCashOut: number;

@@ -16,6 +16,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { voiceSearchService } from '../../services';
 import { VoiceSearchService } from '../../voice/VoiceSearchService';
 import { VoiceSearchResult } from '../../voice/VoiceSearchService';
+import { isPremiumRequiredError } from '../../subscription/types';
 
 interface VoiceSearchModalProps {
   visible: boolean;
@@ -122,7 +123,9 @@ const VoiceSearchModal: React.FC<VoiceSearchModalProps> = ({ visible, onClose })
       );
     } catch (err: any) {
       const msg = err?.message ?? '';
-      if (msg === 'VOICE_MODULE_UNAVAILABLE') {
+      if (isPremiumRequiredError(err)) {
+        setErrorMsg(t('premium.lockedFeatureMsg'));
+      } else if (msg === 'VOICE_MODULE_UNAVAILABLE') {
         setErrorMsg(t('voiceSearch.voiceUnavailable'));
       } else if (msg === 'MICROPHONE_PERMISSION_DENIED') {
         setErrorMsg(t('errors.permissionDenied'));

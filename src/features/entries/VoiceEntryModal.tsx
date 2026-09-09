@@ -21,6 +21,7 @@ import { voiceEntryService, entryService } from '../../services';
 import { VoiceEntryService } from '../../voice/VoiceEntryService';
 import { Colors } from '../../theme/colors';
 import { EntryType, Entry } from '../../models/Entry';
+import { isPremiumRequiredError } from '../../subscription/types';
 
 export interface VoicePrefill {
   personName?: string;
@@ -60,7 +61,7 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
   eventId,
   eventName,
 }) => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
 
   const [phase, setPhase] = useState<Phase>('idle');
@@ -161,10 +162,13 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
           );
           setPhase('error');
         },
+        i18n.language === 'ta' ? 'ta-IN' : 'en-IN',
       );
     } catch (err: any) {
       const msg = err?.message ?? '';
-      if (msg === 'VOICE_MODULE_UNAVAILABLE') {
+      if (isPremiumRequiredError(err)) {
+        setErrorMsg(t('premium.lockedFeatureMsg'));
+      } else if (msg === 'VOICE_MODULE_UNAVAILABLE') {
         setErrorMsg(t('entries.voiceStartFailed'));
       } else if (msg === 'MICROPHONE_PERMISSION_DENIED') {
         setErrorMsg(t('errors.permissionDenied'));
@@ -195,9 +199,29 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
       return;
     }
 
+    const resolvedEntryType: EntryType = forcedEntryType ?? 'OWN_EVENT';
+
+    // IN entries must be mapped to an Own Event. If none was pre-selected,
+    // hand off to the full Add Entry form (via onParsed) so the user can pick
+    // the mandatory event there instead of failing the save.
+    if (resolvedEntryType === 'OWN_EVENT' && !eventId && onParsed) {
+      onParsed({
+        entryType: resolvedEntryType,
+        personName: personName.trim() || undefined,
+        villageName: villageName.trim() || undefined,
+        cashAmount: cash,
+        goldWeight: gold,
+        eventId: eventId ?? null,
+        eventName: eventName ?? undefined,
+        eventDate: entryDate || undefined,
+        remarks: recognizedText ? `[Voice] ${recognizedText}` : undefined,
+        recognizedText,
+      });
+      return;
+    }
+
     setPhase('saving');
     try {
-      const resolvedEntryType: EntryType = forcedEntryType ?? 'OWN_EVENT';
       const saved = await entryService.addEntry({
         entryType: resolvedEntryType,
         personName: personName.trim(),
@@ -213,7 +237,11 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
       onSaved(saved);
       onClose();
     } catch (err: any) {
-      Alert.alert(t('common.error'), err?.message ?? t('entries.saveFailed'));
+      const raw = err?.message ?? '';
+      const msg = raw === 'EVENT_REQUIRED_FOR_IN_ENTRY'
+        ? t('entries.eventRequired')
+        : (raw || t('entries.saveFailed'));
+      Alert.alert(t('common.error'), msg);
       setPhase('form');
     }
   };
@@ -266,7 +294,7 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
                 ) : null}
               </View>
               <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: colors.background }]}>
-                <Text style={[styles.closeBtnText, { color: colors.textMuted }]}>?</Text>
+                <Feather name="x" size={18} color={colors.textMuted} />
               </TouchableOpacity>
             </View>
 
@@ -356,7 +384,7 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
                       style={[styles.input, { color: colors.textPrimary, borderColor: colors.border, backgroundColor: colors.background }]}
                       value={cashAmount}
                       onChangeText={setCashAmount}
-                      placeholder="?0"
+                      placeholder="0"
                       placeholderTextColor={colors.textDisabled}
                       keyboardType="numeric"
                     />
@@ -381,7 +409,7 @@ const VoiceEntryModal: React.FC<VoiceEntryModalProps> = ({
                   onPress={() => setShowDatePicker(true)}
                 >
                   <Text style={[styles.dateText, { color: colors.textPrimary }]}>
-                    ?? {entryDate || t('common.select')}
+                    📅 {entryDate || t('common.select')}
                   </Text>
                 </TouchableOpacity>
 

@@ -10,6 +10,7 @@ import PinSetupScreen          from '../screens/PinSetupScreen';
 import PinLockScreen           from '../screens/PinLockScreen';
 import OnboardingScreen        from '../screens/OnboardingScreen';
 import MainTabNavigator        from './MainTabNavigator';
+import FinanceTabNavigator     from './FinanceTabNavigator';
 import { useTheme } from '../context/ThemeContext';
 
 export type RootStackParamList = {
@@ -21,6 +22,7 @@ export type RootStackParamList = {
   PinLock: undefined;
   Onboarding: undefined;
   MainTab: undefined;
+  FinanceTab: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -64,6 +66,7 @@ const RootNavigator = () => {
         <Stack.Screen name="PinLock"           component={PinLockWrapper} options={{ animation: 'fade' }} />
         <Stack.Screen name="Onboarding"        component={OnboardingScreen} options={{ animation: 'fade_from_bottom' }} />
         <Stack.Screen name="MainTab"           component={MainTabNavigator} options={{ animation: 'fade' }} />
+        <Stack.Screen name="FinanceTab"        component={FinanceTabNavigator} options={{ animation: 'fade' }} />
       </Stack.Navigator>
     </NavigationContainer>
   );

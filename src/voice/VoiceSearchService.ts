@@ -1,5 +1,7 @@
 import { TamilSpeechRecognizer } from './TamilSpeechRecognizer';
 import { getDB } from '../database/db';
+import { assertPremiumFeature } from '../subscription/featureGuard';
+import { PremiumFeature } from '../subscription/subscriptionConfig';
 
 /**
  * Voice Search Service for Dashboard.
@@ -28,7 +30,9 @@ type SearchIntent =
   | { type: 'person_balance'; personName: string }
   | { type: 'person_event_contribution'; personName: string; eventName: string }
   | { type: 'event_total'; eventName: string }
+  | { type: 'event_expense_estimate'; eventType: string }
   | { type: 'today_summary' }
+  | { type: 'overall_summary' }
   | { type: 'unknown' };
 
 export class VoiceSearchService {
@@ -53,6 +57,8 @@ export class VoiceSearchService {
     onResult: (text: string) => void,
     onError?: (error: string) => void,
   ): Promise<void> {
+    // Voice search is a Premium feature — enforce beyond the UI.
+    assertPremiumFeature(PremiumFeature.VoiceSearch);
     this.recognizer.onResult((text) => {
       onResult(text);
     });
@@ -80,6 +86,31 @@ export class VoiceSearchService {
    */
   private parseIntent(text: string): SearchIntent {
     const lower = text.toLowerCase().trim();
+
+    // --- Event expense estimate (e.g. "expected expenses for a wedding") ---
+    if (
+      this.matchesAny(lower, [
+        'expense', 'expenses', 'cost', 'budget', 'spend', 'spending',
+        'செலவு', 'செலவுகள்', 'மதிப்பீடு', 'பட்ஜெட்',
+      ]) &&
+      this.matchesAny(lower, [
+        'wedding', 'marriage', 'birthday', 'housewarming', 'ear piercing', 'function', 'event',
+        'திருமணம்', 'கல்யாணம்', 'பிறந்தநாள்', 'புதுமனை', 'காதணி', 'நிகழ்வு', 'விழா',
+      ])
+    ) {
+      const eventType = this.detectEventType(lower);
+      return { type: 'event_expense_estimate', eventType };
+    }
+
+    // --- Overall summary ("summary", "overview", "how am i doing") ---
+    if (
+      this.matchesAny(lower, [
+        'summary', 'overview', 'overall', 'total summary', 'my account', 'how am i doing',
+        'மொத்த சுருக்கம்', 'சுருக்கம்', 'மொத்த கணக்கு', 'ஒட்டுமொத்த',
+      ])
+    ) {
+      return { type: 'overall_summary' };
+    }
 
     // --- Total cash to receive ---
     if (
@@ -268,6 +299,23 @@ export class VoiceSearchService {
     }
 
     return { type: 'unknown' };
+  }
+
+  /**
+   * Detect an event type keyword from free-form text.
+   * Returns a normalized event type label used for expense estimation.
+   */
+  private detectEventType(lower: string): string {
+    const map: Array<[string[], string]> = [
+      [['wedding', 'marriage', 'திருமணம்', 'கல்யாணம்'], 'WEDDING'],
+      [['birthday', 'பிறந்தநாள்'], 'BIRTHDAY'],
+      [['housewarming', 'gruhapravesam', 'புதுமனை'], 'HOUSEWARMING'],
+      [['ear piercing', 'காதணி'], 'EAR_PIERCING'],
+    ];
+    for (const [keywords, type] of map) {
+      if (this.matchesAny(lower, keywords)) return type;
+    }
+    return 'ANY';
   }
 
   /**
@@ -527,6 +575,138 @@ export class VoiceSearchService {
         return { answer, data: { entries, cash, gold } };
       }
 
+      case 'event_expense_estimate': {
+        // Estimate expected expenses for an event type based on historical data.
+        // Uses the user's OWN events (estimated_cost / actual_expenses) and, when
+        // absent, derives an estimate from average received contributions.
+        const eventType = intent.eventType;
+        const typeClause = eventType !== 'ANY' ? `AND UPPER(type) = ?` : '';
+        const typeParams = eventType !== 'ANY' ? [eventType] : [];
+
+        // Historical own-event expenses of this type
+        const [expRes] = await db.executeSql(
+          `SELECT
+             COUNT(*) AS event_count,
+             COALESCE(AVG(NULLIF(estimated_cost, 0)), 0) AS avg_estimated,
+             COALESCE(AVG(NULLIF(actual_expenses, 0)), 0) AS avg_actual,
+             COALESCE(MAX(actual_expenses), 0) AS max_actual
+           FROM events
+           WHERE owner_type = 'MY_EVENT' ${typeClause}`,
+          typeParams,
+        );
+        const expRow = expRes.rows.item(0);
+        const eventCount = Number(expRow.event_count) || 0;
+        const avgEstimated = Number(expRow.avg_estimated) || 0;
+        const avgActual = Number(expRow.avg_actual) || 0;
+
+        // Average contribution received per person (helps estimate recoverable amount)
+        const [contribRes] = await db.executeSql(
+          `SELECT COALESCE(AVG(cash_amount), 0) AS avg_cash, COUNT(*) AS cnt
+           FROM entries WHERE entry_type = 'OWN_EVENT' AND cash_amount > 0`,
+        );
+        const avgContribution = Number(contribRes.rows.item(0).avg_cash) || 0;
+        const contributionCount = Number(contribRes.rows.item(0).cnt) || 0;
+
+        // Choose the best available estimate
+        const estimate = avgActual > 0 ? avgActual : avgEstimated;
+
+        const typeLabelEn: Record<string, string> = {
+          WEDDING: 'wedding', BIRTHDAY: 'birthday', HOUSEWARMING: 'housewarming',
+          EAR_PIERCING: 'ear piercing', ANY: 'event',
+        };
+        const typeLabelTa: Record<string, string> = {
+          WEDDING: 'திருமணம்', BIRTHDAY: 'பிறந்தநாள்', HOUSEWARMING: 'புதுமனை',
+          EAR_PIERCING: 'காதணி', ANY: 'நிகழ்வு',
+        };
+        const label = lang === 'ta' ? (typeLabelTa[eventType] ?? 'நிகழ்வு') : (typeLabelEn[eventType] ?? 'event');
+
+        let answer: string;
+        if (lang === 'ta') {
+          if (estimate > 0) {
+            answer = `உங்கள் ${label} நிகழ்வுக்கான எதிர்பார்க்கப்படும் செலவு சுமார் ${fmt(estimate)}.\n`;
+            answer += `(${eventCount} முந்தைய நிகழ்வுகளின் அடிப்படையில்)\n\n`;
+          } else {
+            answer = `${label} நிகழ்வுக்கான போதுமான வரலாற்றுத் தரவு இல்லை.\n\n`;
+          }
+          answer += `செலவைக் குறைக்க ஆலோசனைகள்:\n`;
+          answer += `• முன்பதிவுகளை (மண்டபம், சமையல்) முன்கூட்டியே செய்து தள்ளுபடி பெறுங்கள்.\n`;
+          answer += `• அழைப்பாளர் பட்டியலை உங்கள் Moi வரலாற்றின் அடிப்படையில் மேம்படுத்துங்கள்.\n`;
+          if (avgContribution > 0) {
+            answer += `• சராசரி பங்களிப்பு ${fmt(avgContribution)} — வரவேற்கத்தக்க பங்களிப்பு மூலம் நிகர செலவைக் குறைக்கலாம்.\n`;
+          }
+          answer += `• தேவையற்ற செலவுகளைத் தவிர்த்து அத்தியாவசியங்களில் கவனம் செலுத்துங்கள்.`;
+        } else {
+          if (estimate > 0) {
+            answer = `The expected expense for your ${label} is around ${fmt(estimate)}.\n`;
+            answer += `(Based on ${eventCount} past event(s))\n\n`;
+          } else {
+            answer = `Not enough history to estimate a ${label} budget yet.\n\n`;
+          }
+          answer += `Suggestions to reduce expenses:\n`;
+          answer += `• Book venue and catering early to lock in lower rates.\n`;
+          answer += `• Trim the invite list using your Moi history to focus on close contacts.\n`;
+          if (avgContribution > 0) {
+            answer += `• Average contribution is ${fmt(avgContribution)} — expected contributions can offset a large part of the cost.\n`;
+          }
+          answer += `• Prioritise essentials and avoid last-minute add-ons.`;
+        }
+
+        return {
+          answer,
+          data: { eventType, eventCount, avgEstimated, avgActual, estimate, avgContribution, contributionCount },
+        };
+      }
+
+      case 'overall_summary': {
+        const [res] = await db.executeSql(
+          `SELECT
+             COUNT(*) AS entries,
+             COUNT(DISTINCT COALESCE(person_id, person_name)) AS persons,
+             COUNT(DISTINCT CASE WHEN village_name IS NOT NULL AND village_name != '' THEN village_name END) AS villages,
+             COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_in,
+             COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN cash_amount ELSE 0 END), 0) AS cash_out,
+             COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN gold_weight ELSE 0 END), 0) AS gold_in,
+             COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN gold_weight ELSE 0 END), 0) AS gold_out
+           FROM entries`,
+        );
+        const row = res.rows.item(0);
+        const entries = Number(row.entries) || 0;
+        const persons = Number(row.persons) || 0;
+        const villages = Number(row.villages) || 0;
+        const cashIn = Number(row.cash_in) || 0;
+        const cashOut = Number(row.cash_out) || 0;
+        const goldIn = Number(row.gold_in) || 0;
+        const goldOut = Number(row.gold_out) || 0;
+
+        if (entries === 0) {
+          return {
+            answer: lang === 'ta'
+              ? 'இதுவரை பதிவுகள் எதுவும் இல்லை. முதல் பதிவைச் சேர்க்கவும்.'
+              : 'No entries recorded yet. Add your first entry to get started.',
+          };
+        }
+
+        let answer: string;
+        if (lang === 'ta') {
+          answer = `உங்கள் Moi கணக்கு சுருக்கம்:\n`;
+          answer += `• மொத்த பதிவுகள்: ${entries}\n`;
+          answer += `• நபர்கள்: ${persons} · கிராமங்கள்: ${villages}\n`;
+          answer += `• பெற்ற பணம்: ${fmt(cashIn)} · கொடுத்த பணம்: ${fmt(cashOut)}\n`;
+          if (goldIn > 0 || goldOut > 0) {
+            answer += `• பெற்ற தங்கம்: ${fmtGold(goldIn)} · கொடுத்த தங்கம்: ${fmtGold(goldOut)}\n`;
+          }
+        } else {
+          answer = `Your Moi account summary:\n`;
+          answer += `• Total entries: ${entries}\n`;
+          answer += `• People: ${persons} · Villages: ${villages}\n`;
+          answer += `• Cash received: ${fmt(cashIn)} · Cash given: ${fmt(cashOut)}\n`;
+          if (goldIn > 0 || goldOut > 0) {
+            answer += `• Gold received: ${fmtGold(goldIn)} · Gold given: ${fmtGold(goldOut)}\n`;
+          }
+        }
+        return { answer, data: { entries, persons, villages, cashIn, cashOut, goldIn, goldOut } };
+      }
+
       case 'today_summary': {
         const today = new Date().toISOString().split('T')[0];
         const [res] = await db.executeSql(
@@ -577,12 +757,18 @@ export class VoiceSearchService {
       }
 
       case 'unknown':
-      default:
+      default: {
+        // Instead of a dead-end error, give a helpful overall summary so any
+        // spoken query still returns something useful.
+        const summary = await this.executeIntent({ type: 'overall_summary' }, lang);
+        const preamble = lang === 'ta'
+          ? 'உங்கள் கேள்வியைத் துல்லியமாகப் புரிந்து கொள்ள முடியவில்லை — இதோ ஒரு பொதுவான சுருக்கம்:\n\n'
+          : "I couldn't match that exactly — here's a general summary:\n\n";
         return {
-          answer: lang === 'ta'
-            ? 'மன்னிக்கவும், உங்கள் கேள்வியைப் புரிந்து கொள்ள முடியவில்லை. வேறு விதமாக கேட்டு பாருங்கள்.\n\nஎடுத்துக்காட்டுகள்:\n• "மொத்தம் பெற வேண்டிய பணம் எவ்வளவு?"\n• "கண்ணன் எவ்வளவு கொடுத்தார்?"\n• "இன்றைய சுருக்கம்"'
-            : 'Sorry, I couldn\'t understand your question. Try asking differently.\n\nExamples:\n• "What\'s the total cash to be received?"\n• "How much did Kannan give?"\n• "Today\'s summary"',
+          answer: preamble + summary.answer,
+          data: summary.data,
         };
+      }
     }
   }
 

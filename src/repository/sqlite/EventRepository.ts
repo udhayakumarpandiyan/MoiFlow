@@ -8,18 +8,23 @@ export class EventRepository implements IEventRepository {
     const db = await getDB();
     await db.executeSql(
       `INSERT INTO events
-         (id, name, type, owner_type, date, venue, village_name, description, is_active, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, type, owner_type, date, time, venue, village_name, description,
+          is_active, estimated_cost, actual_expenses, notify_at, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         event.id,
         event.name,
         event.type,
         event.ownerType,
         event.date ?? null,
+        event.time ?? null,
         event.venue ?? null,
         event.villageName ?? null,
         event.description ?? null,
         event.isActive ? 1 : 0,
+        event.estimatedCost ?? 0,
+        event.actualExpenses ?? 0,
+        event.notifyAt ?? null,
         event.createdAt,
         event.updatedAt,
         event.syncStatus,
@@ -31,8 +36,9 @@ export class EventRepository implements IEventRepository {
     const db = await getDB();
     await db.executeSql(
       `UPDATE events
-       SET name = ?, type = ?, owner_type = ?, date = ?, venue = ?,
+       SET name = ?, type = ?, owner_type = ?, date = ?, time = ?, venue = ?,
            village_name = ?, description = ?, is_active = ?,
+           estimated_cost = ?, actual_expenses = ?, notify_at = ?,
            updated_at = ?, sync_status = ?
        WHERE id = ?`,
       [
@@ -40,10 +46,14 @@ export class EventRepository implements IEventRepository {
         event.type,
         event.ownerType,
         event.date ?? null,
+        event.time ?? null,
         event.venue ?? null,
         event.villageName ?? null,
         event.description ?? null,
         event.isActive ? 1 : 0,
+        event.estimatedCost ?? 0,
+        event.actualExpenses ?? 0,
+        event.notifyAt ?? null,
         event.updatedAt,
         event.syncStatus,
         event.id,
@@ -116,6 +126,8 @@ export class EventRepository implements IEventRepository {
       type: String(row.type ?? 'OTHER'),
       ownerType: (row.owner_type as EventOwnerType) ?? 'OTHER_PERSON',
       date: row.date ? String(row.date) : undefined,
+      time: row.time ? String(row.time) : undefined,
+      notifyAt: row.notify_at ? String(row.notify_at) : null,
       venue: row.venue ? String(row.venue) : undefined,
       villageName: row.village_name ? String(row.village_name) : undefined,
       personName: row.person_name ? String(row.person_name) : undefined,

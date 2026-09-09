@@ -25,6 +25,10 @@ sqlalchemy==2.0.36
 asyncpg==0.30.0
 alembic==1.14.0
 
-# OCR (optional — requires Tesseract binary installed on the host)
+# OCR — offline handwriting engine (bundles a Tamil model; no system binary).
+# This is the default engine for /api/ocr/handwritten-entries.
+easyocr==1.7.2
+
+# OCR (optional fallback — requires Tesseract binary installed on the host)
 pytesseract==0.3.13
 Pillow==11.2.1

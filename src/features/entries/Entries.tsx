@@ -25,8 +25,23 @@ import { useTranslation } from 'react-i18next';
 
 import { useTheme } from '../../context/ThemeContext';
 import Feather from '@react-native-vector-icons/feather';
-import { entryService } from '../../services';
+import { entryService, eventService } from '../../services';
 import { Entry } from '../../models/Entry';
+import { usePremiumGate } from '../../hooks/usePremiumGate';
+import { PremiumFeature } from '../../subscription/subscriptionConfig';
+import { PremiumLockIcon } from '../../components/PremiumLockIcon';
+
+/**
+ * Loads the user's OWN events (used for the IN-tab event dropdown and for
+ * mapping IN entries). Returns [] on any failure so the UI degrades safely.
+ */
+const entryServiceEventsLoader = async () => {
+  try {
+    return await eventService.getMyEvents();
+  } catch {
+    return [];
+  }
+};
 
 import { Colors } from '../../theme/colors';
 import { Spacing } from '../../theme/typography';
@@ -42,7 +57,11 @@ import { Badge } from '../../components/Badge';
 import { EmptyState } from '../../components/EmptyState';
 
 import AddEditEntryModal from './AddEditEntryModal';
+import EntryDetailModal from './EntryDetailModal';
+import OCRReviewModal from './OCRReviewModal';
 import type { VoicePrefill } from './VoiceEntryModal';
+import type { HandwrittenEntry } from '../../services/OCRService';
+import { pickImage } from '../../utils/imagePicker';
 
 // Lazy-load VoiceEntryModal to keep voice native module off the startup path
 const LazyVoiceEntryModal = React.lazy(() => import('./VoiceEntryModal'));
@@ -135,9 +154,10 @@ const DIRECTION_TABS: {
  * ========================================================================== */
 
 const EntriesScreen = () => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
   const route = useRoute<any>();
+  const { isPremium, ensurePremium } = usePremiumGate();
 
   /* --------------------------------------------------------------------------
    * Entries
@@ -195,6 +215,16 @@ const EntriesScreen = () => {
     useState<Entry | null>(null);
 
   /* --------------------------------------------------------------------------
+   * Detail view
+   * ------------------------------------------------------------------------ */
+
+  const [detailEntry, setDetailEntry] =
+    useState<Entry | null>(null);
+
+  const [detailVisible, setDetailVisible] =
+    useState(false);
+
+  /* --------------------------------------------------------------------------
    * Voice entry
    * ------------------------------------------------------------------------ */
 
@@ -203,6 +233,23 @@ const EntriesScreen = () => {
 
   const [voicePrefill, setVoicePrefill] =
     useState<VoicePrefill | null>(null);
+
+  /* --------------------------------------------------------------------------
+   * OCR notebook scan (handwritten IN entries)
+   * ------------------------------------------------------------------------ */
+
+  const [ocrReviewVisible, setOcrReviewVisible] =
+    useState(false);
+
+  const [ocrScanning, setOcrScanning] =
+    useState(false);
+
+  const [ocrEntries, setOcrEntries] =
+    useState<HandwrittenEntry[]>([]);
+
+  // Whether the last scan reached the OCR backend (false = server/OCR down).
+  const [ocrBackendReachable, setOcrBackendReachable] =
+    useState(true);
 
   /* --------------------------------------------------------------------------
    * Tamil speech recognizer
@@ -268,23 +315,8 @@ const EntriesScreen = () => {
   const loadOwnEvents = useCallback(
     async () => {
       try {
-        const service =
-          require('../../services').eventService;
-
-        if (
-          !service ||
-          typeof service.getEvents !== 'function'
-        ) {
-          // console.warn(
-          //   '[Entries] eventService.getEvents() unavailable',
-          // );
-
-          setOwnEvents([]);
-          return;
-        }
-
-        const events =
-          await service.getEvents();
+        // IN entries are always mapped to the user's OWN events.
+        const events = await entryServiceEventsLoader();
 
         const mappedEvents: OwnEvent[] =
           (events || []).map((event: any) => ({
@@ -296,6 +328,7 @@ const EntriesScreen = () => {
               t('entries.unnamedEvent'),
 
             eventDate:
+              event.date ??
               event.eventDate ??
               event.event_date ??
               null,
@@ -306,6 +339,7 @@ const EntriesScreen = () => {
         setOwnEvents([]);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
@@ -775,6 +809,47 @@ const EntriesScreen = () => {
     setModalVisible(true);
   };
 
+  /* --------------------------------------------------------------------------
+   * Detail view — tap an entry to view, then edit or delete
+   * ------------------------------------------------------------------------ */
+
+  const handleOpenDetail = (entry: Entry) => {
+    setDetailEntry(entry);
+    setDetailVisible(true);
+  };
+
+  const handleDetailEdit = (entry: Entry) => {
+    setDetailVisible(false);
+    setDetailEntry(null);
+    setSelectedEntry(entry);
+    setVoicePrefill(null);
+    setModalVisible(true);
+  };
+
+  const handleDetailDelete = (entry: Entry) => {
+    Alert.alert(
+      t('entries.deleteEntry'),
+      t('entries.deleteConfirm'),
+      [
+        { text: t('entries.confirmNo'), style: 'cancel' },
+        {
+          text: t('entries.confirmYes'),
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await entryService.deleteEntry(entry.id);
+              setDetailVisible(false);
+              setDetailEntry(null);
+              await loadEntries(true);
+            } catch (err) {
+              Alert.alert(t('common.error'), t('entries.deleteFailed'));
+            }
+          },
+        },
+      ],
+    );
+  };
+
   const handleSaved = async () => {
     setModalVisible(false);
     setSelectedEntry(null);
@@ -788,6 +863,19 @@ const EntriesScreen = () => {
    * ======================================================================== */
 
   const handleVoiceSearch =
+    async () => {
+      // Premium gate: voice search is a Premium feature. Show a friendly
+      // upsell instead of starting recognition for Free users.
+      if (
+        !ensurePremium(PremiumFeature.VoiceSearch, () => {
+          void startVoiceSearch();
+        })
+      ) {
+        return;
+      }
+    };
+
+  const startVoiceSearch =
     async () => {
       // Check native module availability first
       if (!getTamilSpeechRecognizer().isAvailable()) {
@@ -841,7 +929,9 @@ const EntriesScreen = () => {
           },
         );
 
-        await recognizer.start();
+        // Use the app's current language for recognition (Tamil or English).
+        const locale = i18n.language === 'ta' ? 'ta-IN' : 'en-IN';
+        await recognizer.start(locale);
       } catch (error: any) {
         if (error?.message === 'MICROPHONE_PERMISSION_DENIED') {
           Alert.alert(
@@ -882,6 +972,80 @@ const EntriesScreen = () => {
     );
 
     setModalVisible(true);
+  };
+
+  /* ==========================================================================
+   * OCR notebook scan — handwritten IN entries
+   *
+   * IN-only: every scanned entry is mapped to the selected Own Event, which
+   * is therefore mandatory before scanning.
+   * ======================================================================== */
+
+  const startNotebookScan = () => {
+    // OCR notebook scanning is a Premium feature — gate with a friendly upsell.
+    if (
+      !ensurePremium(PremiumFeature.OcrScanner, () => {
+        void proceedNotebookScan();
+      })
+    ) {
+      return;
+    }
+  };
+
+  const proceedNotebookScan = () => {
+    if (selectedEventId === 'ALL' || !selectedEvent) {
+      Alert.alert(
+        t('ocr.selectEventFirst'),
+        t('ocr.selectEventMsg'),
+      );
+      return;
+    }
+
+    Alert.alert(
+      t('ocr.chooseSource'),
+      t('ocr.chooseSourceMsg'),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('ocr.camera'), onPress: () => runNotebookScan('camera') },
+        { text: t('ocr.gallery'), onPress: () => runNotebookScan('gallery') },
+      ],
+    );
+  };
+
+  const runNotebookScan = async (source: 'camera' | 'gallery') => {
+    try {
+      const imagePath = await pickImage(source, `ocr-${selectedEventId}`);
+      if (imagePath === 'cancelled') return;
+      if (!imagePath) {
+        Alert.alert(t('common.error'), t('errors.permissionDenied'));
+        return;
+      }
+
+      // Show the review modal in a loading state while OCR runs.
+      setOcrEntries([]);
+      setOcrBackendReachable(true);
+      setOcrScanning(true);
+      setOcrReviewVisible(true);
+
+      const { ocrService } = require('../../services');
+      const result = await ocrService.processHandwrittenEntries(imagePath);
+      setOcrEntries(Array.isArray(result?.entries) ? result.entries : []);
+      setOcrBackendReachable(result?.backendReachable !== false);
+    } catch (error) {
+      Alert.alert(t('common.error'), t('errors.generic'));
+      setOcrReviewVisible(false);
+    } finally {
+      setOcrScanning(false);
+    }
+  };
+
+  const handleOcrSaved = async (count: number) => {
+    setOcrReviewVisible(false);
+    setOcrEntries([]);
+    await loadEntries(true);
+    if (count > 0) {
+      Alert.alert(t('common.success'), t('ocr.willSaveCount', { count }));
+    }
   };
 
   /* ==========================================================================
@@ -1465,7 +1629,7 @@ const EntriesScreen = () => {
         style={styles.entryCard}
         activeOpacity={0.78}
         onPress={() =>
-          handleEdit(item)
+          handleOpenDetail(item)
         }
       >
         <View
@@ -1802,6 +1966,21 @@ const EntriesScreen = () => {
             >
               ▼
             </Text>
+          </TouchableOpacity>
+
+          {/* Scan handwritten notebook → multiple IN entries */}
+          <TouchableOpacity
+            style={[styles.scanNotebookBtn, { borderColor: colors.primary, backgroundColor: colors.primaryBg }]}
+            onPress={startNotebookScan}
+            activeOpacity={0.8}
+          >
+            <Feather name="camera" size={16} color={colors.primary} />
+            <Text style={[styles.scanNotebookText, { color: colors.primary }]}>
+              {t('ocr.scanEntries')}
+            </Text>
+            {!isPremium && (
+              <Feather name="lock" size={12} color={colors.pendingColor} style={{ marginLeft: 6 }} />
+            )}
           </TouchableOpacity>
         </View>
       ) : null}
@@ -2174,13 +2353,14 @@ const EntriesScreen = () => {
               { backgroundColor: colors.surface, borderColor: colors.primary },
             ]}
             onPress={() =>
-              setVoiceModalVisible(
-                true,
+              ensurePremium(PremiumFeature.VoiceEntry, () =>
+                setVoiceModalVisible(true),
               )
             }
             activeOpacity={0.85}
           >
             <Feather name="mic" size={20} color={colors.primary} />
+            {!isPremium && <PremiumLockIcon />}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -2527,6 +2707,33 @@ const EntriesScreen = () => {
           handleSaved
         }
       />
+
+      <EntryDetailModal
+        visible={detailVisible}
+        entry={detailEntry}
+        onClose={() => {
+          setDetailVisible(false);
+          setDetailEntry(null);
+        }}
+        onEdit={handleDetailEdit}
+        onDelete={handleDetailDelete}
+      />
+
+      {/* OCR notebook-scan review — creates IN entries mapped to the event */}
+      <OCRReviewModal
+        visible={ocrReviewVisible}
+        extracted={ocrEntries}
+        loading={ocrScanning}
+        backendReachable={ocrBackendReachable}
+        eventId={selectedEventId !== 'ALL' ? selectedEventId : null}
+        eventName={selectedEvent?.name}
+        eventDate={selectedEvent?.eventDate ?? null}
+        onClose={() => {
+          setOcrReviewVisible(false);
+          setOcrEntries([]);
+        }}
+        onSaved={handleOcrSaved}
+      />
     </View>
   );
 };
@@ -2742,6 +2949,22 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color:
       Colors.textMuted,
+  },
+
+  scanNotebookBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+
+  scanNotebookText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   durationRow: {
@@ -3345,7 +3568,7 @@ const styles = StyleSheet.create({
   fabVoice: {
     position:
       'absolute',
-    bottom: 88,
+    bottom: 164,
     right: 20,
     width: 52,
     height: 52,
@@ -3377,7 +3600,7 @@ const styles = StyleSheet.create({
   fab: {
     position:
       'absolute',
-    bottom: 24,
+    bottom: 100,
     right: 20,
     width: 52,
     height: 52,

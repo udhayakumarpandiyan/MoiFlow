@@ -13,6 +13,7 @@ import Feather from '@react-native-vector-icons/feather';
 import { useTheme } from '../../context/ThemeContext';
 import { voiceEventService } from '../../voice/VoiceEventService';
 import { ParsedVoiceEvent } from '../../voice/TamilEventParser';
+import { isPremiumRequiredError } from '../../subscription/types';
 
 interface VoiceEventModalProps {
   visible: boolean;
@@ -116,7 +117,11 @@ const VoiceEventModal: React.FC<VoiceEventModalProps> = ({
         },
       );
     } catch (err: any) {
-      setErrorMsg(t('errors.voiceUnavailable'));
+      setErrorMsg(
+        isPremiumRequiredError(err)
+          ? t('premium.lockedFeatureMsg')
+          : t('errors.voiceUnavailable'),
+      );
       setPhase('error');
     }
   };

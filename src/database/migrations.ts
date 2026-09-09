@@ -128,6 +128,163 @@ export const MIGRATIONS: Migration[] = [
       await safeIndex(`CREATE INDEX IF NOT EXISTS idx_events_is_active ON events (is_active);`);
     },
   },
+
+  {
+    version: 6,
+    description: 'Add time column to events (event start time alongside date)',
+    up: async (db: SQLiteDatabase) => {
+      const safeAlter = async (sql: string) => {
+        try { await db.executeSql(sql); } catch (_) {}
+      };
+
+      // event start time (HH:mm). estimated_cost / actual_expenses already added in v4.
+      await safeAlter(`ALTER TABLE events ADD COLUMN time TEXT;`);
+    },
+  },
+
+  {
+    version: 7,
+    description: 'Add notify_at column to events (one-time reminder notification datetime)',
+    up: async (db: SQLiteDatabase) => {
+      const safeAlter = async (sql: string) => {
+        try { await db.executeSql(sql); } catch (_) {}
+      };
+
+      // ISO datetime for a one-time reminder notification (nullable).
+      await safeAlter(`ALTER TABLE events ADD COLUMN notify_at TEXT;`);
+    },
+  },
+
+  {
+    version: 8,
+    description:
+      'Add entitlement_cache table — offline/UX cache of the Google Play subscription state. Google Play remains the authority; this is never proof of purchase and is never used to grant premium on its own beyond its cached, expiry-bounded record.',
+    up: async (db: SQLiteDatabase) => {
+      // Single-row cache (id is always 'current'). We keep the latest known
+      // Play purchase snapshot so the app can render premium UI while offline
+      // and before the billing client finishes connecting. It is refreshed
+      // whenever we successfully verify ownership against Google Play.
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS entitlement_cache (
+          id                 TEXT PRIMARY KEY,
+          is_premium         INTEGER NOT NULL DEFAULT 0,
+          plan_id            TEXT,
+          product_id         TEXT,
+          purchase_token     TEXT,
+          expiry_at          TEXT,
+          latest_purchase_at TEXT,
+          last_verified_at   TEXT,
+          source             TEXT NOT NULL DEFAULT 'none',
+          created_at         TEXT NOT NULL,
+          updated_at         TEXT NOT NULL
+        );
+      `);
+    },
+  },
+
+  {
+    version: 9,
+    description:
+      'Pending Payments & Receivables: append-only settlements ledger (partial/full settlement of derived pending balances — never mutates entries) + pending_reminders (follow-up reminder datetime per pending line).',
+    up: async (db: SQLiteDatabase) => {
+      // Append-only ledger. Each row records how much cash/gold of a person's
+      // (optionally per-event) RECEIVABLE or PAYABLE balance was received/paid.
+      // Outstanding is computed as derived-due minus SUM of settlements. Original
+      // entries are never touched, so transaction history is fully preserved.
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS settlements (
+          id            TEXT PRIMARY KEY,
+          direction     TEXT NOT NULL CHECK (direction IN ('RECEIVABLE', 'PAYABLE')),
+          person_id     TEXT NOT NULL,
+          person_name   TEXT NOT NULL,
+          event_id      TEXT,
+          settled_cash  REAL NOT NULL DEFAULT 0,
+          settled_gold  REAL NOT NULL DEFAULT 0,
+          note          TEXT,
+          settled_at    TEXT NOT NULL,
+          created_at    TEXT NOT NULL
+        );
+      `);
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_settlements_person ON settlements (person_id, direction);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_settlements_event ON settlements (event_id);`,
+      );
+
+      // One follow-up reminder per pending line. `key` is the deterministic
+      // pending key (person[+event][+direction]); remind_at is an ISO datetime.
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS pending_reminders (
+          key        TEXT PRIMARY KEY,
+          person_id  TEXT NOT NULL,
+          event_id   TEXT,
+          direction  TEXT,
+          remind_at  TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+      `);
+    },
+  },
+
+  {
+    version: 10,
+    description:
+      'Finance module — loans + append-only loan_payments. Independent from the Moi domain. Original loan principal/interest is never mutated; every repayment is a new loan_payments row, preserving full history.',
+    up: async (db: SQLiteDatabase) => {
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS loans (
+          id             TEXT PRIMARY KEY,
+          direction      TEXT NOT NULL DEFAULT 'LENT'
+                           CHECK (direction IN ('LENT', 'BORROWED')),
+          loan_type      TEXT NOT NULL DEFAULT 'PERSONAL'
+                           CHECK (loan_type IN ('PERSONAL','BUSINESS','CAR','GOLD','AGRICULTURAL','HOME','EDUCATION','OTHER')),
+          party_type     TEXT NOT NULL DEFAULT 'PERSON'
+                           CHECK (party_type IN ('PERSON','BUSINESS')),
+          party_name     TEXT NOT NULL,
+          party_village  TEXT,
+          party_phone    TEXT,
+          party_contact  TEXT,
+          principal      REAL NOT NULL DEFAULT 0,
+          interest_rate  REAL NOT NULL DEFAULT 0,
+          interest_type  TEXT NOT NULL DEFAULT 'NONE'
+                           CHECK (interest_type IN ('NONE','SIMPLE','FLAT','REDUCING','COMPOUND')),
+          loan_date      TEXT NOT NULL,
+          due_date       TEXT,
+          status         TEXT NOT NULL DEFAULT 'PENDING'
+                           CHECK (status IN ('PENDING','EXPECTED','SETTLED','BAD_DEBT')),
+          notes          TEXT,
+          created_at     TEXT NOT NULL,
+          updated_at     TEXT NOT NULL,
+          sync_status    INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS loan_payments (
+          id             TEXT PRIMARY KEY,
+          loan_id        TEXT NOT NULL,
+          principal_paid REAL NOT NULL DEFAULT 0,
+          interest_paid  REAL NOT NULL DEFAULT 0,
+          payment_date   TEXT NOT NULL,
+          note           TEXT,
+          created_at     TEXT NOT NULL,
+          sync_status    INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_loans_direction ON loans(direction);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_loan_payments_loan ON loan_payments(loan_id);`,
+      );
+    },
+  },
 ];
 
 /**

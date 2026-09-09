@@ -27,18 +27,14 @@ const MoiflowLogo: React.FC<MoiflowLogoProps> = ({
   const config = sizeConfig[size];
 
   if (variant === 'header') {
-    // App icon + text logo that adapts to any header background color
+    // Full MoiFlow wordmark logo for the navigation header.
     return (
       <View style={styles.headerContainer}>
         <Image
-          source={require('../assets/app-icon/moiflow-app-icon-48.png')}
-          style={styles.headerIcon}
+          source={require('../assets/logo/moiflow-logo-temp.png')}
+          style={styles.headerLogo}
           resizeMode="contain"
         />
-        <Text style={[styles.headerText, { color }]}>
-          <Text style={styles.headerBold}>Moi</Text>
-          <Text style={styles.headerLight}>Flow</Text>
-        </Text>
       </View>
     );
   }
@@ -75,7 +71,10 @@ const styles = StyleSheet.create({
   headerContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+  },
+  headerLogo: {
+    width: 168,
+    height: 42,
   },
   headerIcon: {
     width: 28,

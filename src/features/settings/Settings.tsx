@@ -36,6 +36,7 @@ import { Spacing } from '../../theme/typography';
 import { formatDateTime } from '../../utils/format';
 import { ThemeColors, useTheme } from '@/context/ThemeContext';
 import { useAppTranslation } from '@/hooks/useAppTranslation';
+import { useEntitlement } from '@/context/EntitlementContext';
 
 const LANGUAGE_OPTIONS: {
   key: Language;
@@ -101,6 +102,7 @@ const THEME_KEYS: {
 const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
   const { colors, setTheme } = useTheme();
   const { t } = useAppTranslation();
+  const { isPremium } = useEntitlement();
   const styles = useMemo(() => createStyles(colors), [colors]);
   const [settings, setSettings] = useState<AppSettings>({
     language: 'ta',
@@ -630,6 +632,35 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
           </View>
         </View>
         {/* ================================================================ */}
+        {/* PREMIUM / SUBSCRIPTION */}
+        {/* ================================================================ */}
+
+        <Text style={styles.sectionTitle}>
+          {t('premium.sectionTitle')}
+        </Text>
+
+        <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => navigation?.navigate('Premium')}
+          >
+            <View style={styles.rowContent}>
+              <Text style={styles.rowTitle}>
+                {isPremium
+                  ? t('premium.manageTitle')
+                  : t('premium.upgradeTitle')}
+              </Text>
+              <Text style={styles.rowSub}>
+                {isPremium
+                  ? t('premium.statusActive')
+                  : t('premium.upgradeSubtitle')}
+              </Text>
+            </View>
+            <Text style={styles.rowArrow}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* ================================================================ */}
         {/* LANGUAGE */}
         {/* ================================================================ */}
 
@@ -651,35 +682,20 @@ const SettingsScreen: React.FC<{ navigation?: any }> = ({ navigation }) => {
                     settings.language ===
                     language.key &&
                     styles.rowSelected,
-                    language.key === 'en' &&
-                    styles.rowDisabled,
                   ]}
                   onPress={() =>
                     requestLanguageChange(
                       language.key,
                     )
                   }
-                  disabled={language.key === 'en'}
                 >
                   <View style={styles.rowContent}>
-                    <Text
-                      style={[
-                        styles.rowTitle,
-                        language.key === 'en' && styles.rowTitleDisabled,
-                      ]}
-                    >
+                    <Text style={styles.rowTitle}>
                       {t(language.titleKey as any)}
                     </Text>
 
-                    <Text
-                      style={[
-                        styles.rowSub,
-                        language.key === 'en' && styles.rowSubDisabled,
-                      ]}
-                    >
-                      {language.key === 'en'
-                        ? t('settings.comingSoon')
-                        : t(language.subtitleKey as any)}
+                    <Text style={styles.rowSub}>
+                      {t(language.subtitleKey as any)}
                     </Text>
                   </View>
 
@@ -1439,6 +1455,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   content: {
     padding: Spacing.lg,
+    paddingBottom: 110,
   },
   header: {
     flexDirection: 'row',

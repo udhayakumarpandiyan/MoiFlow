@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { LazyScreen } from '../../../components/LazyScreen';
 
 const LazyReports = React.lazy(() => import('../../../features/reports/Reports'));
+const LazyPersonHistory = React.lazy(() => import('../../../features/reports/PersonHistoryScreen'));
 
 const Stack = createNativeStackNavigator();
 
@@ -12,11 +13,22 @@ const ReportsScreen = (props: any) => (
   </LazyScreen>
 );
 
+const PersonHistoryScreen = (props: any) => (
+  <LazyScreen>
+    <LazyPersonHistory {...props} />
+  </LazyScreen>
+);
+
 const ReportsStack = () => (
   <Stack.Navigator>
     <Stack.Screen
       name="Reports"
       component={ReportsScreen}
+      options={{ headerShown: false }}
+    />
+    <Stack.Screen
+      name="PersonHistory"
+      component={PersonHistoryScreen}
       options={{ headerShown: false }}
     />
   </Stack.Navigator>

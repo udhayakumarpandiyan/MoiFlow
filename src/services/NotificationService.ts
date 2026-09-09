@@ -96,6 +96,87 @@ class NotificationService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Per-event one-time reminder notifications
+  //
+  // Each event can have a single configurable reminder. The notification id is
+  // deterministic (`event-notif-<id>`) so scheduling again reschedules, and
+  // cancelling is a straightforward lookup.
+  // ---------------------------------------------------------------------------
+
+  private eventNotifId(eventId: string): string {
+    return `event-notif-${eventId}`;
+  }
+
+  /**
+   * Schedule (or reschedule) a one-time reminder for an event.
+   *
+   * @param eventId    The event's id.
+   * @param eventName  Display name for the notification.
+   * @param notifyAtISO ISO datetime for the reminder. If null/past, any
+   *                    existing reminder is cancelled and nothing is scheduled.
+   * @param body       Optional notification body text.
+   * @returns true if a notification was scheduled, false otherwise.
+   */
+  async scheduleEventNotification(
+    eventId: string,
+    eventName: string,
+    notifyAtISO: string | null | undefined,
+    body?: string,
+  ): Promise<boolean> {
+    // Always clear any existing reminder first (handles reschedule + cancel).
+    await this.cancelEventNotification(eventId);
+
+    if (!notifyAtISO) return false;
+
+    const timestamp = new Date(notifyAtISO).getTime();
+    if (Number.isNaN(timestamp)) return false;
+
+    // Never schedule notifications for a past datetime.
+    if (timestamp <= Date.now()) return false;
+
+    try {
+      const granted = await this.requestPermission();
+      if (!granted) return false;
+
+      await this.ensureChannel();
+
+      const trigger: TimestampTrigger = {
+        type: TriggerType.TIMESTAMP,
+        timestamp,
+      };
+
+      await notifee.createTriggerNotification(
+        {
+          id: this.eventNotifId(eventId),
+          title: `🔔 ${eventName}`,
+          body: body ?? 'Upcoming event reminder',
+          android: {
+            channelId: CHANNEL_ID,
+            importance: AndroidImportance.HIGH,
+            pressAction: { id: 'default' },
+            smallIcon: 'ic_launcher',
+          },
+        },
+        trigger,
+      );
+
+      return true;
+    } catch (err) {
+      return false;
+    }
+  }
+
+  /**
+   * Cancel a single event's reminder notification.
+   */
+  async cancelEventNotification(eventId: string): Promise<void> {
+    try {
+      await notifee.cancelTriggerNotification(this.eventNotifId(eventId));
+    } catch (err) {
+    }
+  }
+
   /**
    * Request notification permission (needed on Android 13+ / iOS).
    */

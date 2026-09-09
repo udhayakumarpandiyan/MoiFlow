@@ -12,6 +12,8 @@ export {
   personService,
   dashboardService,
   reportService,
+  pendingService,
+  loanService,
   syncQueueService,
   backupService,
   settingsService,
@@ -22,4 +24,8 @@ export {
   googleDriveService,
   ocrService,
   voiceEventService,
+  subscriptionService,
+  entitlementService,
+  entitlementRepository,
+  firebaseSyncService,
 } from '../di/container';

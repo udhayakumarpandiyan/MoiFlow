@@ -31,8 +31,9 @@ import {
 } from '../../utils/format';
 import { SegmentedControl } from '../../components/SegmentedControl';
 import { EmptyState } from '../../components/EmptyState';
+import { PendingSection } from './PendingSection';
 
-type ReportTab = 'OVERVIEW' | 'EVENT' | 'VILLAGE';
+type ReportTab = 'OVERVIEW' | 'EVENT' | 'VILLAGE' | 'PENDING';
 type PeriodFilter = 'ALL' | 'YEAR' | 'CUSTOM';
 
 type OverallReport = {
@@ -52,13 +53,14 @@ type OverallReport = {
 
 type VillageSort = 'ENTRIES_DESC' | 'ENTRIES_ASC';
 
-const ReportsScreen = () => {
+const ReportsScreen = ({ navigation }: { navigation?: any } = {}) => {
   const { t } = useTranslation();
   const { colors } = useTheme();
 
   const REPORT_TABS = useMemo(
     () => [
       { key: 'OVERVIEW', label: t('reports.overview') },
+      { key: 'PENDING', label: t('reports.pending.tab') },
       { key: 'EVENT', label: t('reports.eventWise') },
       { key: 'VILLAGE', label: t('reports.village') },
     ],
@@ -564,6 +566,19 @@ const ReportsScreen = () => {
         />
 
         {/* ---------------------------------------------------------------- */}
+        {/* Pending Payments & Receivables */}
+        {/* ---------------------------------------------------------------- */}
+
+        {tab === 'PENDING' && (
+          <PendingSection
+            baseFilter={buildFilter()}
+            onOpenPerson={(personId, personName) =>
+              navigation?.navigate('PersonHistory', { personId, personName })
+            }
+          />
+        )}
+
+        {/* ---------------------------------------------------------------- */}
         {/* Overview */}
         {/* ---------------------------------------------------------------- */}
 
@@ -972,6 +987,26 @@ const EventCard: React.FC<{
         </View>
       </View>
 
+      {/* Estimated vs Actual expenses (always visible) */}
+      <View style={styles.villageMetrics}>
+        <View style={styles.villageMetric}>
+          <Text style={[styles.villageMetricLabel, { color: colors.textMuted }]}>
+            {t('events.estimatedCost')}
+          </Text>
+          <Text style={[styles.villageMetricValue, { color: colors.textPrimary }]}>
+            {formatCash(estimatedCost)}
+          </Text>
+        </View>
+        <View style={styles.villageMetric}>
+          <Text style={[styles.villageMetricLabel, { color: colors.textMuted }]}>
+            {t('events.actualExpenses')}
+          </Text>
+          <Text style={[styles.villageMetricValue, { color: colors.outColor }]}>
+            {formatCash(actualExpenses)}
+          </Text>
+        </View>
+      </View>
+
       {/* Expanded: Cost estimation, expenses, summary */}
       {expanded && (
         <View style={[styles.villageExpanded, { borderTopColor: colors.borderLight }]}>
@@ -1082,7 +1117,7 @@ const VillageCard: React.FC<{
           </Text>
 
           <Text style={[styles.villageCount, { color: colors.textMuted }]}>
-            {v.entryCount} {t('reports.entries')}
+            {v.entryCount} {t('reports.entries')} · {v.personCount} {t('reports.persons')}
           </Text>
         </View>
 
@@ -1301,7 +1336,7 @@ const styles = StyleSheet.create({
 
   content: {
     padding: Spacing.lg,
-    paddingBottom: 40,
+    paddingBottom: 110,
   },
 
   center: {
