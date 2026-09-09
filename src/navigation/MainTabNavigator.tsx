@@ -12,6 +12,7 @@ import ReportsStack from './stacks/maintab/ReportsStack';
 import SettingsStack from './stacks/maintab/SettingsStack';
 import { ProfileMenu } from '../components/ProfileMenu';
 import { ModeSwitch } from '../components/ModeSwitch';
+import { DashboardWelcome } from '../components/DashboardWelcome';
 import { authService } from '../services/AuthService';
 import { useTheme } from '../context/ThemeContext';
 import MoiflowLogo from '../components/MoiflowLogo';
@@ -41,18 +42,22 @@ const MainTabNavigator = () => {
     <View style={[styles.root, { backgroundColor: colors.background }]}>
       {/* Persistent header — rendered ONCE above the navigator, so it never
           animates or shifts when the active tab changes. Only the body (the
-          Tab.Navigator scenes) transitions. */}
-      <View
-        style={[
-          styles.header,
-          { paddingTop: insets.top + 20, backgroundColor: colors.background },
-        ]}
-      >
-        <View style={styles.headerLeft}>
+          Tab.Navigator scenes) transitions.
+
+          Top row: app logo + header actions (notifications, profile).
+          Welcome row: shared greeting + user name (common to both flows).
+          Mode row: the Moi ⇄ Finance mode switch. */}
+      <View style={[styles.headerWrap, { paddingTop: insets.top + 20, backgroundColor: colors.background }]}>
+        <View style={styles.headerTop}>
           <MoiflowLogo color={colors.textPrimary} size="medium" variant="header" />
+          <ProfileMenu onSignOut={handleSignOut} />
+        </View>
+        <View style={styles.headerWelcome}>
+          <DashboardWelcome />
+        </View>
+        <View style={styles.headerBottom}>
           <ModeSwitch current="moi" />
         </View>
-        <ProfileMenu onSignOut={handleSignOut} />
       </View>
 
       <View style={styles.body}>
@@ -103,16 +108,23 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
-  header: {
+  headerWrap: {
+    paddingBottom: 6,
+  },
+  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingBottom: 6,
   },
-  headerLeft: {
+  headerWelcome: {
+    paddingHorizontal: 4,
+    paddingTop: 12,
+  },
+  headerBottom: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: 16,
+    paddingTop: 10,
   },
   body: {
     flex: 1,

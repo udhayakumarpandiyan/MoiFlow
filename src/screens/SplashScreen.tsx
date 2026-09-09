@@ -193,7 +193,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
-    shadowRadius: 16,
+    shadowRadius: 10,
     elevation: 12,
   },
   appIcon: {
@@ -239,7 +239,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   versionText: {
-    color: '#111111',
+    color: '#fff',
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.5,

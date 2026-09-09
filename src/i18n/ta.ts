@@ -220,6 +220,8 @@ const ta = {
 
   dashboard: {
     title:          'டாஷ்போர்டு',
+    moiDashboard:   'மொய் டாஷ்போர்டு',
+    moiDashboardSubtitle: 'நிகழ்வுகள், பங்களிப்புகள் மற்றும் நபர்கள்',
     greeting:       'வணக்கம்',
     todayActivity:  'இன்றைய செயல்பாடு',
     entries:        'பதிவுகள்',

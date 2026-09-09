@@ -13,7 +13,6 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useFocusEffect } from '@react-navigation/native';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Feather from '@react-native-vector-icons/feather';
 import { useTheme } from '../../context/ThemeContext';
 import { dashboardService } from '../../services';
@@ -30,22 +29,6 @@ const LazyVoiceSearchModal = React.lazy(() => import('./VoiceSearchModal'));
 
 const DashboardScreen = ({ navigation }: any) => {
   const { t } = useTranslation();
-  const [userName, setUserName] = useState<string>('');
-
-  useFocusEffect(
-    useCallback(() => {
-      const loadUserName = async () => {
-        // Primary key used by AuthService
-        let name = await AsyncStorage.getItem('app.user_name');
-        // Fallback to legacy key from older registration
-        if (!name) {
-          name = await AsyncStorage.getItem('app.user.name');
-        }
-        if (name) setUserName(name);
-      };
-      loadUserName();
-    }, []),
-  );
   const { colors } = useTheme();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
@@ -237,15 +220,14 @@ const DashboardScreen = ({ navigation }: any) => {
           />
         }
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <View>
-            <Text style={[styles.greeting, { color: colors.textMuted }]}>
-              {t('dashboard.greeting')} 👋
+        {/* Page title */}
+        <View style={styles.titleRow}>
+          <View style={styles.titleBlock}>
+            <Text style={[styles.pageTitle, { color: colors.textPrimary }]}>
+              {t('dashboard.moiDashboard')}
             </Text>
-
-            <Text style={[styles.title, { color: colors.textPrimary }]}>
-              {userName || t('app.name')}
+            <Text style={[styles.pageSubtitle, { color: colors.textMuted }]}>
+              {t('dashboard.moiDashboardSubtitle')}
             </Text>
           </View>
 
@@ -926,12 +908,26 @@ const styles = StyleSheet.create({
     paddingBottom: 110,
   },
 
-  header: {
+  titleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 28,
+    marginTop: 16,
+    marginBottom: 20,
+  },
+
+  titleBlock: {
+    flexShrink: 1,
+  },
+
+  pageTitle: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+
+  pageSubtitle: {
+    fontSize: 13,
+    marginTop: 2,
   },
 
   voiceSearchBtn: {
@@ -945,20 +941,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 4,
     elevation: 2,
-  },
-
-  greeting: {
-    fontSize: 12,
-    fontWeight: '500',
-    letterSpacing: 0.2,
-  },
-
-  title: {
-    fontSize: 19,
-    lineHeight: 28,
-    fontWeight: '700',
-    marginTop: 4,
-    letterSpacing: -0.3,
   },
 
   sectionHeader: {

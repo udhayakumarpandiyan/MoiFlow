@@ -208,7 +208,7 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
             </TouchableOpacity>
           </View>
 
-          <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
             {/* Owner type */}
             <Text style={styles.label}>{t('events.ownerType')}</Text>
             <SegmentedControl
@@ -315,19 +315,29 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
               placeholder={t('events.description')}
               multiline
             />
+          </ScrollView>
 
+          {/* Sticky footer — Save button always visible */}
+          <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.surface }]}>
             <View style={styles.actions}>
-              {isEdit && (
-                <Button title={t('common.delete')} onPress={handleDelete} variant="danger" disabled={saving} style={{ flex: 1 }} />
-              )}
+              {isEdit ? (
+                <Button
+                  title={t('common.delete')}
+                  onPress={handleDelete}
+                  variant="danger"
+                  disabled={saving}
+                  style={{ flex: 1 }}
+                />
+              ) : null}
               <Button
                 title={saving ? t('common.loading') : isEdit ? t('common.save') : t('events.saveEvent')}
                 onPress={handleSave}
                 loading={saving}
-                style={{ flex: isEdit ? 2 : 1 }}
+                fullWidth={!isEdit}
+                style={isEdit ? { flex: 2 } : undefined}
               />
             </View>
-          </ScrollView>
+          </View>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -366,7 +376,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   closeBtnText: { fontSize: 14, color: colors.textMuted },
-  content: { padding: Spacing.lg, paddingBottom: 40 },
+  scroll: { flexShrink: 1 },
+  content: { padding: Spacing.lg, paddingBottom: 16 },
+  footer: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: 12,
+    paddingBottom: 24,
+    borderTopWidth: StyleSheet.hairlineWidth,
+  },
   label: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 7, marginTop: 12 },
   typeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
   typeChip: {
@@ -382,5 +399,5 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 12, backgroundColor: colors.background,
   },
   dateBtnText: { fontSize: 13, fontWeight: '500', color: colors.textPrimary },
-  actions: { flexDirection: 'row', gap: 10, marginTop: 28 },
+  actions: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center' },
 });

@@ -225,6 +225,8 @@ const en = {
 
   dashboard: {
     title:          'Dashboard',
+    moiDashboard:   'Moi Dashboard',
+    moiDashboardSubtitle: 'Events, contributions and people',
     greeting:       'Welcome back',
     todayActivity:  "Today's Activity",
     entries:        'Entries',

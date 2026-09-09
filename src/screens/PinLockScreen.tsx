@@ -154,7 +154,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
           setError(t('auth.pinLock.wrongPin'));
         }
       }
-    } catch (err) {
+    } catch {
       setPin('');
       resetDots();
       setError(t('auth.pinLock.wrongPin'));
@@ -173,7 +173,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: '#FFFFFF' }]}>
+    <SafeAreaView style={styles.container}>
       {/* Brand */}
       <View style={styles.brandSection}>
         <Image
@@ -185,10 +185,10 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
 
       {/* Title & subtitle */}
       <View style={styles.headerSection}>
-        <Text style={[styles.title, { color: '#111827' }]}>
+        <Text style={styles.title}>
           {t('auth.pinLock.title')}
         </Text>
-        <Text style={[styles.subtitle, { color: '#6B7280' }]}>
+        <Text style={styles.subtitle}>
           {t('auth.pinLock.enterPin')}
         </Text>
       </View>
@@ -242,7 +242,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
                   styles.key,
                   { backgroundColor: colors.surface, borderColor: colors.border },
                   key === '' && styles.keyEmpty,
-                  lockedOut && { opacity: 0.4 },
+                  lockedOut && styles.keyLockedOut,
                 ]}
                 onPress={() => handleKey(key)}
                 disabled={key === '' || lockedOut || verifying}
@@ -253,7 +253,7 @@ const PinLockScreen: React.FC<Props> = ({ onUnlocked }) => {
                   style={[
                     styles.keyText,
                     { color: colors.textPrimary },
-                    key === '⌫' && { fontSize: 20 },
+                    key === '⌫' && styles.keyTextBackspace,
                   ]}
                 >
                   {key}
@@ -274,6 +274,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     paddingTop: 40,
+    backgroundColor: '#FFFFFF',
   },
   brandSection: {
     marginBottom: 32,
@@ -292,9 +293,11 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '700',
     marginBottom: 6,
+    color: '#111827',
   },
   subtitle: {
     fontSize: 13,
+    color: '#6B7280',
   },
   dotsRow: {
     flexDirection: 'row',
@@ -351,8 +354,14 @@ const styles = StyleSheet.create({
     elevation: 0,
     shadowOpacity: 0,
   },
+  keyLockedOut: {
+    opacity: 0.4,
+  },
   keyText: {
     fontSize: 23,
     fontWeight: '600',
+  },
+  keyTextBackspace: {
+    fontSize: 20,
   },
 });
