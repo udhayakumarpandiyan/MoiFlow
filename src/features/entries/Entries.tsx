@@ -2681,6 +2681,15 @@ const EntriesScreen = () => {
         voicePrefill={
           voicePrefill
         }
+        prefillEventId={
+          // Only meaningful for new IN entries — ignored in edit mode and for
+          // OUT entries (the modal's own logic handles those cases).
+          !selectedEntry && direction === 'IN'
+            ? selectedEventId !== 'ALL'
+              ? selectedEventId          // user already filtered to a specific event
+              : ownEvents[0]?.id ?? null // default: most recent own event
+            : null
+        }
         forceEntryType={
           selectedEntry
             ? selectedEntry.entryType
@@ -3568,7 +3577,7 @@ const styles = StyleSheet.create({
   fabVoice: {
     position:
       'absolute',
-    bottom: 164,
+    bottom: 194,
     right: 20,
     width: 52,
     height: 52,
@@ -3600,7 +3609,7 @@ const styles = StyleSheet.create({
   fab: {
     position:
       'absolute',
-    bottom: 100,
+    bottom: 130,
     right: 20,
     width: 52,
     height: 52,

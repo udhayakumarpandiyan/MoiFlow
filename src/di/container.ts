@@ -27,6 +27,8 @@ import { DashboardRepository } from '../repository/sqlite/DashboardRepository';
 import { ReportRepository }    from '../repository/sqlite/ReportRepository';
 import { PendingRepository }   from '../repository/sqlite/PendingRepository';
 import { LoanRepository }      from '../repository/sqlite/LoanRepository';
+import { CreditRepository }    from '../repository/sqlite/CreditRepository';
+import { BusinessRepository }  from '../repository/sqlite/BusinessRepository';
 import { SyncQueueRepository } from '../repository/sqlite/SyncQueueRepository';
 import { EntitlementRepository } from '../repository/sqlite/EntitlementRepository';
 
@@ -37,6 +39,8 @@ import { DashboardService }  from '../services/DashboardService';
 import { ReportService }     from '../services/ReportService';
 import { PendingService }    from '../services/PendingService';
 import { LoanService }       from '../services/LoanService';
+import { CreditService }     from '../services/CreditService';
+import { BusinessService }   from '../services/BusinessService';
 import { SyncQueueService }  from '../services/SyncQueueService';
 import { SettingsService }   from '../services/SettingsService';
 import { balanceService }    from '../services/BalanceService';
@@ -57,6 +61,8 @@ export const dashboardRepository = new DashboardRepository();
 export const reportRepository    = new ReportRepository();
 export const pendingRepository   = new PendingRepository();
 export const loanRepository      = new LoanRepository();
+export const creditRepository    = new CreditRepository();
+export const businessRepository  = new BusinessRepository();
 export const syncQueueRepository = new SyncQueueRepository();
 export const entitlementRepository = new EntitlementRepository();
 
@@ -107,6 +113,8 @@ export const dashboardService = new DashboardService(dashboardRepository);
 export const reportService    = new ReportService(reportRepository);
 export const pendingService   = new PendingService(pendingRepository);
 export const loanService      = new LoanService(loanRepository, syncQueueRepository);
+export const creditService    = new CreditService(creditRepository, syncQueueRepository);
+export const businessService  = new BusinessService(businessRepository, syncQueueRepository);
 export const syncQueueService = new SyncQueueService(syncQueueRepository);
 export const settingsService  = new SettingsService();
 

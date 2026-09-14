@@ -149,51 +149,86 @@ export const CREATE_PENDING_REMINDERS_TABLE = `
 `;
 
 // ---------------------------------------------------------------------------
-// FINANCE MODULE — loans + append-only loan payments.
-// Independent from the Moi domain. (Also created by migration v10; duplicated
-// here so fresh installs have them.) The original loan principal/interest are
-// never mutated; every repayment is a new row in loan_payments.
+// FINANCE MODULE — EMI-based loans + a configurable gold-loan provider table.
+// Independent from the Moi domain. A loan stores its repayment plan (amount,
+// EMI, tenure, total/paid EMIs); outstanding + next EMI date are derived.
+// Marking a loan "CLOSED" only flips its status — the record is kept.
 // ---------------------------------------------------------------------------
 
 export const CREATE_LOANS_TABLE = `
   CREATE TABLE IF NOT EXISTS loans (
-    id             TEXT PRIMARY KEY,
-    direction      TEXT NOT NULL DEFAULT 'LENT'
-                     CHECK (direction IN ('LENT', 'BORROWED')),
-    loan_type      TEXT NOT NULL DEFAULT 'PERSONAL'
-                     CHECK (loan_type IN ('PERSONAL','BUSINESS','CAR','GOLD','AGRICULTURAL','HOME','EDUCATION','OTHER')),
-    party_type     TEXT NOT NULL DEFAULT 'PERSON'
-                     CHECK (party_type IN ('PERSON','BUSINESS')),
-    party_name     TEXT NOT NULL,
-    party_village  TEXT,
-    party_phone    TEXT,
-    party_contact  TEXT,
-    principal      REAL NOT NULL DEFAULT 0,
-    interest_rate  REAL NOT NULL DEFAULT 0,
-    interest_type  TEXT NOT NULL DEFAULT 'NONE'
-                     CHECK (interest_type IN ('NONE','SIMPLE','FLAT','REDUCING','COMPOUND')),
-    loan_date      TEXT NOT NULL,
-    due_date       TEXT,
-    status         TEXT NOT NULL DEFAULT 'PENDING'
-                     CHECK (status IN ('PENDING','EXPECTED','SETTLED','BAD_DEBT')),
-    notes          TEXT,
-    created_at     TEXT NOT NULL,
-    updated_at     TEXT NOT NULL,
-    sync_status    INTEGER NOT NULL DEFAULT 0
+    id                 TEXT PRIMARY KEY,
+    loan_type          TEXT NOT NULL DEFAULT 'PERSONAL'
+                         CHECK (loan_type IN ('CAR','TWO_WHEELER','AGRI','PERSONAL','BUSINESS','CHIT','GOLD','OTHERS')),
+    loan_amount        REAL NOT NULL DEFAULT 0,
+    start_date         TEXT NOT NULL,
+    provider           TEXT NOT NULL DEFAULT '',
+    interest_rate      REAL NOT NULL DEFAULT 0,
+    monthly_emi        REAL NOT NULL DEFAULT 0,
+    emi_date           INTEGER NOT NULL DEFAULT 1,
+    tenure             INTEGER NOT NULL DEFAULT 0,
+    total_emis         INTEGER NOT NULL DEFAULT 0,
+    paid_emis          INTEGER NOT NULL DEFAULT 0,
+    outstanding_amount REAL,
+    status             TEXT NOT NULL DEFAULT 'ACTIVE'
+                         CHECK (status IN ('ACTIVE','CLOSED')),
+    notes              TEXT,
+    created_at         TEXT NOT NULL,
+    updated_at         TEXT NOT NULL,
+    sync_status        INTEGER NOT NULL DEFAULT 0
   );
 `;
 
-export const CREATE_LOAN_PAYMENTS_TABLE = `
-  CREATE TABLE IF NOT EXISTS loan_payments (
+export const CREATE_GOLD_LOAN_PROVIDERS_TABLE = `
+  CREATE TABLE IF NOT EXISTS gold_loan_providers (
+    id              TEXT PRIMARY KEY,
+    provider        TEXT NOT NULL,
+    interest_rate   REAL NOT NULL DEFAULT 0,
+    amount_per_gram REAL NOT NULL DEFAULT 0,
+    ltv             REAL NOT NULL DEFAULT 0,
+    processing_fee  REAL NOT NULL DEFAULT 0,
+    other_charges   TEXT,
+    updated_at      TEXT NOT NULL
+  );
+`;
+
+// ---------------------------------------------------------------------------
+// FINANCE MODULE — Business (customers, suppliers, sales, purchases).
+// Parties store contact info; transactions store amount + amount settled.
+// Outstanding + payment status are derived, never stored.
+// ---------------------------------------------------------------------------
+
+export const CREATE_BUSINESS_PARTIES_TABLE = `
+  CREATE TABLE IF NOT EXISTS business_parties (
+    id           TEXT PRIMARY KEY,
+    kind         TEXT NOT NULL DEFAULT 'CUSTOMER'
+                   CHECK (kind IN ('CUSTOMER','SUPPLIER')),
+    name         TEXT NOT NULL,
+    phone        TEXT,
+    address      TEXT,
+    notes        TEXT,
+    created_at   TEXT NOT NULL,
+    updated_at   TEXT NOT NULL,
+    sync_status  INTEGER NOT NULL DEFAULT 0
+  );
+`;
+
+export const CREATE_BUSINESS_TRANSACTIONS_TABLE = `
+  CREATE TABLE IF NOT EXISTS business_transactions (
     id             TEXT PRIMARY KEY,
-    loan_id        TEXT NOT NULL,
-    principal_paid REAL NOT NULL DEFAULT 0,
-    interest_paid  REAL NOT NULL DEFAULT 0,
-    payment_date   TEXT NOT NULL,
-    note           TEXT,
+    kind           TEXT NOT NULL DEFAULT 'SALE'
+                     CHECK (kind IN ('SALE','PURCHASE')),
+    party_id       TEXT NOT NULL,
+    date           TEXT NOT NULL,
+    description    TEXT,
+    quantity       REAL NOT NULL DEFAULT 0,
+    amount         REAL NOT NULL DEFAULT 0,
+    amount_settled REAL NOT NULL DEFAULT 0,
+    notes          TEXT,
     created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL,
     sync_status    INTEGER NOT NULL DEFAULT 0,
-    FOREIGN KEY (loan_id) REFERENCES loans(id) ON DELETE CASCADE
+    FOREIGN KEY (party_id) REFERENCES business_parties(id) ON DELETE CASCADE
   );
 `;
 
@@ -214,7 +249,9 @@ export const CREATE_INDEXES = [
   `CREATE INDEX IF NOT EXISTS idx_persons_name        ON persons(name);`,
   `CREATE INDEX IF NOT EXISTS idx_persons_village     ON persons(village_name);`,
   `CREATE INDEX IF NOT EXISTS idx_sync_queue_entity   ON sync_queue(entity_type, entity_id);`,
-  `CREATE INDEX IF NOT EXISTS idx_loans_direction      ON loans(direction);`,
+  `CREATE INDEX IF NOT EXISTS idx_loans_type           ON loans(loan_type);`,
   `CREATE INDEX IF NOT EXISTS idx_loans_status         ON loans(status);`,
-  `CREATE INDEX IF NOT EXISTS idx_loan_payments_loan   ON loan_payments(loan_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_biz_parties_kind     ON business_parties(kind);`,
+  `CREATE INDEX IF NOT EXISTS idx_biz_txn_kind         ON business_transactions(kind);`,
+  `CREATE INDEX IF NOT EXISTS idx_biz_txn_party        ON business_transactions(party_id);`,
 ];

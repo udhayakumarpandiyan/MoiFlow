@@ -6,6 +6,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { MoiEvent, CreateEventInput, EventOwnerType } from '../../models/Event';
 import { eventService } from '../../services';
@@ -57,6 +58,7 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
 }) => {
   const { colors } = useTheme();
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const styles = useMemo(() => createStyles(colors), [colors]);
 
   const OWNER_SEGMENTS = useMemo(() => [
@@ -244,17 +246,34 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
               ))}
             </View>
 
-            {/* Date */}
-            <Text style={styles.label}>{t('events.date')}</Text>
-            <TouchableOpacity
-              style={styles.dateBtn}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={styles.dateBtnText}>
-                📅 {date ? formatDate(date) : t('common.select')}
-              </Text>
-            </TouchableOpacity>
+            {/* Date + Time on the same row */}
+            <View style={styles.dateTimeRow}>
+              <View style={styles.dateTimeField}>
+                <Text style={styles.label}>{t('events.date')}</Text>
+                <TouchableOpacity
+                  style={styles.dateBtn}
+                  onPress={() => setShowDatePicker(true)}
+                >
+                  <Text style={styles.dateBtnText}>
+                    📅 {date ? formatDate(date) : t('common.select')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
+              <View style={styles.dateTimeField}>
+                <Text style={styles.label}>{t('events.time')}</Text>
+                <TouchableOpacity
+                  style={styles.dateBtn}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={styles.dateBtnText}>
+                    🕐 {time || t('common.select')}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Native pickers rendered outside the row — they float or inline */}
             {showDatePicker && (
               <DateTimePicker
                 value={date ? new Date(date) : new Date()}
@@ -267,18 +286,6 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
                 onDismiss={() => setShowDatePicker(false)}
               />
             )}
-
-            {/* Time */}
-            <Text style={styles.label}>{t('events.time')}</Text>
-            <TouchableOpacity
-              style={styles.dateBtn}
-              onPress={() => setShowTimePicker(true)}
-            >
-              <Text style={styles.dateBtnText}>
-                🕐 {time || t('common.select')}
-              </Text>
-            </TouchableOpacity>
-
             {showTimePicker && (
               <DateTimePicker
                 value={time ? new Date(`2000-01-01T${time}`) : new Date()}
@@ -317,8 +324,12 @@ const AddEditEventModal: React.FC<AddEditEventModalProps> = ({
             />
           </ScrollView>
 
-          {/* Sticky footer — Save button always visible */}
-          <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.surface }]}>
+          {/* Sticky footer — Save button always visible, clears device home indicator */}
+          <View style={[styles.footer, {
+            borderTopColor: colors.borderLight,
+            backgroundColor: colors.surface,
+            paddingBottom: Math.max(insets.bottom, 16) + 8,
+          }]}>
             <View style={styles.actions}>
               {isEdit ? (
                 <Button
@@ -354,6 +365,8 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     overflow: 'hidden',
+    // Column layout: header (fixed) + scroll (flexible) + footer (fixed).
+    flexDirection: 'column',
   },
   header: {
     flexDirection: 'row',
@@ -376,12 +389,15 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   closeBtnText: { fontSize: 14, color: colors.textMuted },
-  scroll: { flexShrink: 1 },
+  // flexShrink lets the scroll area yield space so the sticky footer stays
+  // visible; flexGrow:0 keeps it from pushing the footer off-screen.
+  scroll: { flexGrow: 0, flexShrink: 1 },
   content: { padding: Spacing.lg, paddingBottom: 16 },
   footer: {
+    flexShrink: 0,
     paddingHorizontal: Spacing.lg,
     paddingTop: 12,
-    paddingBottom: 24,
+    /* paddingBottom driven inline via safe-area insets */
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   label: { fontSize: 12, fontWeight: '600', color: colors.textSecondary, marginBottom: 7, marginTop: 12 },
@@ -394,6 +410,14 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
   typeChipActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   typeChipText: { fontSize: 12, fontWeight: '600', color: colors.textMuted },
   typeChipTextActive: { color: colors.textInverse },
+  dateTimeRow: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'flex-start',
+  },
+  dateTimeField: {
+    flex: 1,
+  },
   dateBtn: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 10,
     paddingHorizontal: 14, paddingVertical: 12, backgroundColor: colors.background,

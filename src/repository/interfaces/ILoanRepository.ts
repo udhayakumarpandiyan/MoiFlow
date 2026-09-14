@@ -1,15 +1,16 @@
 import {
   Loan,
-  LoanPayment,
   LoanFilter,
+  GoldLoanProvider,
 } from '../../finance/models/Loan';
 
 /**
  * Data access for the Finance / Loans module.
  *
- * Loans and their append-only payment history live in dedicated `loans` and
- * `loan_payments` tables, fully separate from the Moi domain. Recording a
- * payment inserts a new loan_payments row — it never updates the loan.
+ * Loans are EMI-based borrowings stored in the `loans` table, fully separate
+ * from the Moi domain. Marking a loan CLOSED only updates its status row — the
+ * record is preserved. Gold-loan provider comparison rows live in their own
+ * configurable `gold_loan_providers` table.
  */
 export interface ILoanRepository {
   create(loan: Loan): Promise<void>;
@@ -18,10 +19,8 @@ export interface ILoanRepository {
   getById(id: string): Promise<Loan | null>;
   getAll(filter?: LoanFilter): Promise<Loan[]>;
 
-  /** Append a payment (immutable history). */
-  addPayment(payment: LoanPayment): Promise<void>;
-  /** Payments for a loan, oldest → newest. */
-  getPayments(loanId: string): Promise<LoanPayment[]>;
-  /** Payments for many loans in one query (loanId → payments). */
-  getPaymentsForLoans(loanIds: string[]): Promise<Record<string, LoanPayment[]>>;
+  // ── Gold loan comparison (configurable providers) ──────────────────────────
+  getGoldProviders(): Promise<GoldLoanProvider[]>;
+  upsertGoldProvider(provider: GoldLoanProvider): Promise<void>;
+  deleteGoldProvider(id: string): Promise<void>;
 }

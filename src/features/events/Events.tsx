@@ -1682,7 +1682,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   fabVoice: {
     position: 'absolute',
-    bottom: 164,
+    bottom: 194,
     right: 20,
     width: 52,
     height: 52,
@@ -1701,7 +1701,7 @@ const createStyles = (colors: ThemeColors) => StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: 100,
+    bottom: 130,
     right: 20,
     width: 52,
     height: 52,

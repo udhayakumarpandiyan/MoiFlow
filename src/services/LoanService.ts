@@ -4,24 +4,27 @@ import { ILoanRepository } from '../repository/interfaces/ILoanRepository';
 import { ISyncQueueRepository } from '../repository/interfaces/ISyncQueueRepository';
 import {
   Loan,
-  LoanPayment,
   LoanFilter,
   LoanSummary,
   LoanTotals,
-  LoanDirection,
   LoanStatus,
+  ClosureSuggestion,
   CreateLoanInput,
-  CreateLoanPaymentInput,
+  GoldLoanProvider,
+  CreateGoldLoanProviderInput,
 } from '../finance/models/Loan';
-import { computeLoanSummary, deriveStatus } from '../finance/loanCalculations';
+import {
+  computeLoanSummary,
+  closureSuggestions,
+} from '../finance/loanCalculations';
 
 /**
- * Finance / Loans business logic.
+ * Finance / Loans business logic (EMI-based loans).
  *
- * Independent from Moi services. All financial figures (interest, outstanding,
- * paid) are DERIVED via loanCalculations — the loan row's principal/interest is
- * never overwritten. Payments are append-only. Optionally enqueues sync ops so
- * loans flow through the existing (Premium-gated) Firebase sync when enabled.
+ * Independent from Moi services. Outstanding amount, remaining EMIs, next EMI
+ * date and closure suggestions are DERIVED via loanCalculations. Marking a loan
+ * CLOSED only flips its status — the record is preserved in history. Optionally
+ * enqueues sync ops so loans flow through the existing (Premium-gated) sync.
  */
 export class LoanService {
   constructor(
@@ -36,19 +39,19 @@ export class LoanService {
     const now = new Date().toISOString();
     const loan: Loan = {
       id: uuidv4(),
-      direction: input.direction,
       loanType: input.loanType,
-      partyType: input.partyType,
-      partyName: input.partyName.trim(),
-      partyVillage: input.partyVillage?.trim() || null,
-      partyPhone: input.partyPhone?.trim() || null,
-      partyContact: input.partyContact?.trim() || null,
-      principal: Number(input.principal) || 0,
+      loanAmount: Number(input.loanAmount) || 0,
+      startDate: input.startDate,
+      provider: input.provider.trim(),
       interestRate: Number(input.interestRate) || 0,
-      interestType: input.interestType,
-      loanDate: input.loanDate,
-      dueDate: input.dueDate ?? null,
-      status: input.status ?? 'PENDING',
+      monthlyEMI: Number(input.monthlyEMI) || 0,
+      emiDate: clampEmiDay(input.emiDate),
+      tenure: Math.max(Math.round(Number(input.tenure) || 0), 0),
+      totalEMIs: Math.max(Math.round(Number(input.totalEMIs) || 0), 0),
+      paidEMIs: Math.max(Math.round(Number(input.paidEMIs) || 0), 0),
+      outstandingAmount:
+        input.outstandingAmount != null ? Number(input.outstandingAmount) : null,
+      status: input.status ?? 'ACTIVE',
       notes: input.notes?.trim() || null,
       createdAt: now,
       updatedAt: now,
@@ -67,28 +70,48 @@ export class LoanService {
     const updated: Loan = {
       ...existing,
       ...updates,
-      // Coerce trimmed/typed fields where provided.
-      partyName: (updates.partyName ?? existing.partyName).trim(),
-      partyVillage:
-        updates.partyVillage !== undefined
-          ? updates.partyVillage?.trim() || null
-          : existing.partyVillage,
-      partyPhone:
-        updates.partyPhone !== undefined
-          ? updates.partyPhone?.trim() || null
-          : existing.partyPhone,
-      partyContact:
-        updates.partyContact !== undefined
-          ? updates.partyContact?.trim() || null
-          : existing.partyContact,
-      principal:
-        updates.principal !== undefined
-          ? Number(updates.principal) || 0
-          : existing.principal,
+      provider:
+        updates.provider !== undefined
+          ? updates.provider.trim()
+          : existing.provider,
+      loanAmount:
+        updates.loanAmount !== undefined
+          ? Number(updates.loanAmount) || 0
+          : existing.loanAmount,
       interestRate:
         updates.interestRate !== undefined
           ? Number(updates.interestRate) || 0
           : existing.interestRate,
+      monthlyEMI:
+        updates.monthlyEMI !== undefined
+          ? Number(updates.monthlyEMI) || 0
+          : existing.monthlyEMI,
+      emiDate:
+        updates.emiDate !== undefined
+          ? clampEmiDay(updates.emiDate)
+          : existing.emiDate,
+      tenure:
+        updates.tenure !== undefined
+          ? Math.max(Math.round(Number(updates.tenure) || 0), 0)
+          : existing.tenure,
+      totalEMIs:
+        updates.totalEMIs !== undefined
+          ? Math.max(Math.round(Number(updates.totalEMIs) || 0), 0)
+          : existing.totalEMIs,
+      paidEMIs:
+        updates.paidEMIs !== undefined
+          ? Math.max(Math.round(Number(updates.paidEMIs) || 0), 0)
+          : existing.paidEMIs,
+      outstandingAmount:
+        updates.outstandingAmount !== undefined
+          ? updates.outstandingAmount != null
+            ? Number(updates.outstandingAmount)
+            : null
+          : existing.outstandingAmount,
+      notes:
+        updates.notes !== undefined
+          ? updates.notes?.trim() || null
+          : existing.notes,
       updatedAt: new Date().toISOString(),
       syncStatus: 0,
     };
@@ -100,6 +123,7 @@ export class LoanService {
   }
 
   async deleteLoan(id: string): Promise<void> {
+    await this.cancelReminders(id);
     await this.loanRepo.delete(id);
     await this.enqueue('DELETE', 'loan', id, { id });
   }
@@ -112,128 +136,12 @@ export class LoanService {
     return this.loanRepo.getAll(filter);
   }
 
-  // ── Derived summaries ─────────────────────────────────────────────────────────
-
-  /** Full computed summary for one loan (interest, paid, outstanding). */
-  async getLoanSummary(id: string, asOf?: string): Promise<LoanSummary | null> {
-    const loan = await this.loanRepo.getById(id);
-    if (!loan) return null;
-    const payments = await this.loanRepo.getPayments(id);
-    return computeLoanSummary(loan, payments, asOf);
+  /** Close a loan — flips status to CLOSED, keeps the record + cancels reminders. */
+  async markClosed(id: string): Promise<Loan> {
+    return this.setStatus(id, 'CLOSED');
   }
 
-  /** Loans + their summaries for a filter, in one efficient pass. */
-  async getLoanSummaries(
-    filter?: LoanFilter,
-    asOf?: string,
-  ): Promise<LoanSummary[]> {
-    const loans = await this.loanRepo.getAll(filter);
-    if (loans.length === 0) return [];
-    const paymentsByLoan = await this.loanRepo.getPaymentsForLoans(
-      loans.map(l => l.id),
-    );
-    return loans.map(loan =>
-      computeLoanSummary(loan, paymentsByLoan[loan.id] ?? [], asOf),
-    );
-  }
-
-  /** Per-direction totals (to receive for LENT, to settle for BORROWED). */
-  async getTotals(direction: LoanDirection, asOf?: string): Promise<LoanTotals> {
-    const summaries = await this.getLoanSummaries({ direction }, asOf);
-    return this.computeTotals(direction, summaries);
-  }
-
-  /** Pure aggregation of summaries into per-direction totals. */
-  computeTotals(direction: LoanDirection, summaries: LoanSummary[]): LoanTotals {
-    return summaries.reduce<LoanTotals>(
-      (acc, s) => {
-        acc.loanCount += 1;
-        acc.totalPrincipal += s.remainingPrincipal;
-        acc.totalInterest += s.remainingInterest;
-        acc.totalOutstanding += s.totalOutstanding;
-        return acc;
-      },
-      {
-        direction,
-        loanCount: 0,
-        totalPrincipal: 0,
-        totalInterest: 0,
-        totalOutstanding: 0,
-      },
-    );
-  }
-
-  // ── Payments (append-only) + settlement ─────────────────────────────────────────
-
-  /**
-   * Record a repayment/collection against a loan. Appends a new payment row —
-   * the loan itself is never modified except its derived status. Amounts are
-   * clamped so they can't exceed the outstanding principal/interest. When the
-   * loan is fully cleared, its status auto-advances to SETTLED (unless already
-   * BAD_DEBT). Returns the payment + the refreshed summary.
-   */
-  async recordPayment(
-    input: CreateLoanPaymentInput,
-  ): Promise<{ payment: LoanPayment; summary: LoanSummary }> {
-    const loan = await this.loanRepo.getById(input.loanId);
-    if (!loan) throw new Error(`Loan not found: ${input.loanId}`);
-
-    const now = new Date().toISOString();
-    const currentSummary = computeLoanSummary(
-      loan,
-      await this.loanRepo.getPayments(loan.id),
-      input.paymentDate ?? now,
-    );
-
-    const principalPaid = clampNonNeg(
-      Math.min(Number(input.principalPaid) || 0, currentSummary.remainingPrincipal),
-    );
-    const interestPaid = clampNonNeg(
-      Math.min(Number(input.interestPaid) || 0, currentSummary.remainingInterest),
-    );
-
-    if (principalPaid <= 0 && interestPaid <= 0) {
-      throw new Error('PAYMENT_AMOUNT_REQUIRED');
-    }
-
-    const payment: LoanPayment = {
-      id: uuidv4(),
-      loanId: loan.id,
-      principalPaid,
-      interestPaid,
-      paymentDate: input.paymentDate ?? now,
-      note: input.note?.trim() || null,
-      createdAt: now,
-      syncStatus: 0,
-    };
-
-    await this.loanRepo.addPayment(payment);
-    await this.enqueue('CREATE', 'loan_payment', payment.id, payment);
-
-    // Recompute and auto-settle if cleared.
-    const payments = await this.loanRepo.getPayments(loan.id);
-    const summary = computeLoanSummary(loan, payments, input.paymentDate ?? now);
-    const nextStatus = deriveStatus(loan, summary);
-    if (nextStatus !== loan.status) {
-      const updated: Loan = {
-        ...loan,
-        status: nextStatus,
-        updatedAt: now,
-        syncStatus: 0,
-      };
-      await this.loanRepo.update(updated);
-      await this.enqueue('UPDATE', 'loan', updated.id, updated);
-      summary.loan = updated;
-    }
-
-    return { payment, summary };
-  }
-
-  async getPayments(loanId: string): Promise<LoanPayment[]> {
-    return this.loanRepo.getPayments(loanId);
-  }
-
-  /** Manually set a settlement status (e.g. Expected to Settle, Bad Debt). */
+  /** Manually set a loan status (ACTIVE / CLOSED). */
   async setStatus(id: string, status: LoanStatus): Promise<Loan> {
     const loan = await this.loanRepo.getById(id);
     if (!loan) throw new Error(`Loan not found: ${id}`);
@@ -245,21 +153,169 @@ export class LoanService {
     };
     await this.loanRepo.update(updated);
     await this.enqueue('UPDATE', 'loan', updated.id, updated);
+    if (status === 'CLOSED') {
+      await this.cancelReminders(id);
+    }
     return updated;
+  }
+
+  // ── Derived summaries ─────────────────────────────────────────────────────────
+
+  /** Full computed summary for one loan. */
+  async getLoanSummary(id: string): Promise<LoanSummary | null> {
+    const loan = await this.loanRepo.getById(id);
+    if (!loan) return null;
+    return computeLoanSummary(loan);
+  }
+
+  /** Loans + their summaries for a filter. */
+  async getLoanSummaries(filter?: LoanFilter): Promise<LoanSummary[]> {
+    const loans = await this.loanRepo.getAll(filter);
+    return loans.map(loan => computeLoanSummary(loan));
+  }
+
+  /** Aggregate totals for the dashboard/list header. */
+  async getTotals(): Promise<LoanTotals> {
+    const summaries = await this.getLoanSummaries();
+    return this.computeTotals(summaries);
+  }
+
+  /** Pure aggregation of summaries into totals. */
+  computeTotals(summaries: LoanSummary[]): LoanTotals {
+    return summaries.reduce<LoanTotals>(
+      (acc, s) => {
+        acc.loanCount += 1;
+        if (s.loan.status === 'ACTIVE') {
+          acc.activeCount += 1;
+          acc.totalOutstanding += s.outstandingAmount;
+          acc.totalMonthlyEMI += s.loan.monthlyEMI;
+        } else {
+          acc.closedCount += 1;
+        }
+        return acc;
+      },
+      {
+        loanCount: 0,
+        activeCount: 0,
+        closedCount: 0,
+        totalOutstanding: 0,
+        totalMonthlyEMI: 0,
+      },
+    );
+  }
+
+  /** "Close Loan Faster" suggestions for a loan. */
+  getClosureSuggestions(loan: Loan): ClosureSuggestion[] {
+    return closureSuggestions(loan);
+  }
+
+  // ── Reminders (reuse the existing notifee-based NotificationService) ───────────
+
+  /**
+   * Schedule (or cancel) the next-EMI reminder for a loan. When `enabled` is
+   * true it schedules a one-time reminder on the loan's next EMI date; when
+   * false it cancels it. Loaded lazily to mirror the app's pattern and avoid a
+   * require cycle with the DI container.
+   */
+  async setEmiReminder(loan: Loan, enabled: boolean): Promise<boolean> {
+    return this.scheduleReminder(loan, 'emi', enabled);
+  }
+
+  /** Schedule (or cancel) a due-date reminder on the loan's next EMI date. */
+  async setDueDateReminder(loan: Loan, enabled: boolean): Promise<boolean> {
+    return this.scheduleReminder(loan, 'due', enabled);
+  }
+
+  private async scheduleReminder(
+    loan: Loan,
+    kind: 'emi' | 'due',
+    enabled: boolean,
+  ): Promise<boolean> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { notificationService } = require('./NotificationService');
+      const id = `loan-${kind}-${loan.id}`;
+      if (!enabled) {
+        await notificationService.cancelLoanReminder(id);
+        return false;
+      }
+      const summary = computeLoanSummary(loan);
+      if (!summary.nextEmiDate) return false;
+      const title =
+        kind === 'emi'
+          ? `EMI reminder · ${loan.provider}`
+          : `EMI due · ${loan.provider}`;
+      const body = `Monthly EMI ₹${loan.monthlyEMI.toLocaleString('en-IN')}`;
+      return await notificationService.scheduleLoanReminder(
+        id,
+        title,
+        summary.nextEmiDate,
+        body,
+      );
+    } catch {
+      // Notification module unavailable — safe to ignore.
+      return false;
+    }
+  }
+
+  private async cancelReminders(loanId: string): Promise<void> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { notificationService } = require('./NotificationService');
+      await notificationService.cancelLoanReminder(`loan-emi-${loanId}`);
+      await notificationService.cancelLoanReminder(`loan-due-${loanId}`);
+    } catch {
+      /* safe to ignore */
+    }
+  }
+
+  // ── Gold loan comparison (configurable providers) ────────────────────────────
+
+  async getGoldProviders(): Promise<GoldLoanProvider[]> {
+    return this.loanRepo.getGoldProviders();
+  }
+
+  async saveGoldProvider(
+    input: CreateGoldLoanProviderInput,
+    id?: string,
+  ): Promise<GoldLoanProvider> {
+    if (!input.provider || !input.provider.trim()) {
+      throw new Error('PROVIDER_REQUIRED');
+    }
+    const provider: GoldLoanProvider = {
+      id: id ?? uuidv4(),
+      provider: input.provider.trim(),
+      interestRate: Number(input.interestRate) || 0,
+      amountPerGram: Number(input.amountPerGram) || 0,
+      ltv: Number(input.ltv) || 0,
+      processingFee: Number(input.processingFee) || 0,
+      otherCharges: input.otherCharges?.trim() || null,
+      updatedAt: new Date().toISOString(),
+    };
+    await this.loanRepo.upsertGoldProvider(provider);
+    return provider;
+  }
+
+  async deleteGoldProvider(id: string): Promise<void> {
+    await this.loanRepo.deleteGoldProvider(id);
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
   private validateLoanInput(input: {
-    partyName: string;
-    principal: number;
+    provider: string;
+    loanAmount: number;
+    monthlyEMI: number;
     interestRate: number;
   }): void {
-    if (!input.partyName || !String(input.partyName).trim()) {
-      throw new Error('PARTY_NAME_REQUIRED');
+    if (!input.provider || !String(input.provider).trim()) {
+      throw new Error('PROVIDER_REQUIRED');
     }
-    if (!(Number(input.principal) > 0)) {
-      throw new Error('PRINCIPAL_REQUIRED');
+    if (!(Number(input.loanAmount) > 0)) {
+      throw new Error('LOAN_AMOUNT_REQUIRED');
+    }
+    if (!(Number(input.monthlyEMI) > 0)) {
+      throw new Error('EMI_REQUIRED');
     }
     if (Number(input.interestRate) < 0) {
       throw new Error('INVALID_INTEREST_RATE');
@@ -268,7 +324,7 @@ export class LoanService {
 
   private async enqueue(
     operation: 'CREATE' | 'UPDATE' | 'DELETE',
-    entityType: 'loan' | 'loan_payment',
+    entityType: 'loan',
     entityId: string,
     payload: unknown,
   ): Promise<void> {
@@ -290,6 +346,9 @@ export class LoanService {
   }
 }
 
-function clampNonNeg(n: number): number {
-  return n > 0 ? n : 0;
+function clampEmiDay(day: number | undefined): number {
+  let d = Math.round(Number(day) || 1);
+  if (Number.isNaN(d) || d < 1) d = 1;
+  if (d > 31) d = 31;
+  return d;
 }

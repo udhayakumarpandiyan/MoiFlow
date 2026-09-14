@@ -1,39 +1,38 @@
 /**
  * Pure loan-math tests (loanCalculations.ts).
  *
- * Covers interest accrual for every InterestType (NONE / SIMPLE / FLAT /
- * REDUCING / COMPOUND), payment summing, derived outstanding balances, the
- * "cleared" threshold, and status derivation. All functions are pure so no
- * SQLite / mocks are needed.
+ * Covers EMI-based derived values: remaining EMIs, outstanding amount (stored
+ * vs estimated), next EMI date, loan summary and the "close loan faster"
+ * suggestions. All functions are pure so no SQLite / mocks are needed.
  */
 
 import {
-  yearsBetween,
-  computeInterestAccrued,
-  sumPayments,
+  remainingEMIs,
+  computeOutstanding,
+  nextEmiDate,
   computeLoanSummary,
-  deriveStatus,
+  closureSuggestions,
 } from '../../src/finance/loanCalculations';
-import type { Loan, LoanPayment, InterestType } from '../../src/finance/models/Loan';
+import type { Loan } from '../../src/finance/models/Loan';
 
 // ── Builders ──────────────────────────────────────────────────────────────────
 
 function makeLoan(overrides: Partial<Loan> = {}): Loan {
   return {
     id: overrides.id ?? 'loan-1',
-    direction: overrides.direction ?? 'LENT',
     loanType: overrides.loanType ?? 'PERSONAL',
-    partyType: overrides.partyType ?? 'PERSON',
-    partyName: overrides.partyName ?? 'Ravi',
-    partyVillage: overrides.partyVillage ?? null,
-    partyPhone: overrides.partyPhone ?? null,
-    partyContact: overrides.partyContact ?? null,
-    principal: overrides.principal ?? 100000,
+    loanAmount: overrides.loanAmount ?? 120000,
+    startDate: overrides.startDate ?? '2025-01-01T00:00:00.000Z',
+    provider: overrides.provider ?? 'HDFC Bank',
     interestRate: overrides.interestRate ?? 12,
-    interestType: overrides.interestType ?? 'SIMPLE',
-    loanDate: overrides.loanDate ?? '2025-01-01T00:00:00.000Z',
-    dueDate: overrides.dueDate ?? null,
-    status: overrides.status ?? 'PENDING',
+    monthlyEMI: overrides.monthlyEMI ?? 10000,
+    emiDate: overrides.emiDate ?? 5,
+    tenure: overrides.tenure ?? 12,
+    totalEMIs: overrides.totalEMIs ?? 12,
+    paidEMIs: overrides.paidEMIs ?? 3,
+    outstandingAmount:
+      overrides.outstandingAmount !== undefined ? overrides.outstandingAmount : null,
+    status: overrides.status ?? 'ACTIVE',
     notes: overrides.notes ?? null,
     createdAt: overrides.createdAt ?? '2025-01-01T00:00:00.000Z',
     updatedAt: overrides.updatedAt ?? '2025-01-01T00:00:00.000Z',
@@ -41,162 +40,114 @@ function makeLoan(overrides: Partial<Loan> = {}): Loan {
   };
 }
 
-function makePayment(overrides: Partial<LoanPayment> = {}): LoanPayment {
-  return {
-    id: overrides.id ?? 'pay-1',
-    loanId: overrides.loanId ?? 'loan-1',
-    principalPaid: overrides.principalPaid ?? 0,
-    interestPaid: overrides.interestPaid ?? 0,
-    paymentDate: overrides.paymentDate ?? '2025-07-01T00:00:00.000Z',
-    note: overrides.note ?? null,
-    createdAt: overrides.createdAt ?? '2025-07-01T00:00:00.000Z',
-    syncStatus: overrides.syncStatus ?? 0,
-  };
-}
+// ── remainingEMIs ────────────────────────────────────────────────────────────────
 
-// Exactly one year after loanDate for clean interest math.
-const ONE_YEAR_LATER = '2026-01-01T00:00:00.000Z';
-
-// ── yearsBetween ────────────────────────────────────────────────────────────────
-
-describe('yearsBetween', () => {
-  it('is ~1 for a one-year gap', () => {
-    expect(yearsBetween('2025-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')).toBeCloseTo(1, 2);
+describe('remainingEMIs', () => {
+  it('is totalEMIs minus paidEMIs', () => {
+    expect(remainingEMIs(makeLoan({ totalEMIs: 12, paidEMIs: 3 }))).toBe(9);
   });
 
-  it('is 0 when the end date is before the start', () => {
-    expect(yearsBetween('2026-01-01T00:00:00.000Z', '2025-01-01T00:00:00.000Z')).toBe(0);
-  });
-
-  it('is 0 for invalid dates', () => {
-    expect(yearsBetween('not-a-date', ONE_YEAR_LATER)).toBe(0);
+  it('never goes negative', () => {
+    expect(remainingEMIs(makeLoan({ totalEMIs: 12, paidEMIs: 15 }))).toBe(0);
   });
 });
 
-// ── computeInterestAccrued: per interest type ─────────────────────────────────────
+// ── computeOutstanding ─────────────────────────────────────────────────────────
 
-describe('computeInterestAccrued', () => {
-  it('NONE accrues no interest', () => {
-    const loan = makeLoan({ interestType: 'NONE' });
-    expect(computeInterestAccrued(loan, ONE_YEAR_LATER)).toBe(0);
+describe('computeOutstanding', () => {
+  it('estimates outstanding as remaining EMIs * monthly EMI when not stored', () => {
+    const loan = makeLoan({ totalEMIs: 12, paidEMIs: 3, monthlyEMI: 10000 });
+    expect(computeOutstanding(loan)).toBe(90000);
   });
 
-  it('SIMPLE = principal * rate * years', () => {
-    const loan = makeLoan({ interestType: 'SIMPLE', principal: 100000, interestRate: 12 });
-    // 100000 * 0.12 * 1yr = 12000
-    expect(computeInterestAccrued(loan, ONE_YEAR_LATER)).toBeCloseTo(12000, 0);
+  it('uses the stored outstanding amount when provided', () => {
+    const loan = makeLoan({ outstandingAmount: 55000 });
+    expect(computeOutstanding(loan)).toBe(55000);
   });
 
-  it('FLAT matches SIMPLE on the original principal', () => {
-    const loan = makeLoan({ interestType: 'FLAT', principal: 100000, interestRate: 12 });
-    expect(computeInterestAccrued(loan, ONE_YEAR_LATER)).toBeCloseTo(12000, 0);
-  });
-
-  it('REDUCING charges interest on principal net of what was paid', () => {
-    const loan = makeLoan({ interestType: 'REDUCING', principal: 100000, interestRate: 12 });
-    // 40000 principal already paid -> base 60000 * 0.12 * 1yr = 7200
-    expect(computeInterestAccrued(loan, ONE_YEAR_LATER, 40000)).toBeCloseTo(7200, 0);
-  });
-
-  it('COMPOUND = principal * ((1+rate)^years - 1)', () => {
-    const loan = makeLoan({ interestType: 'COMPOUND', principal: 100000, interestRate: 12 });
-    // 100000 * ((1.12)^1 - 1) = 12000 at exactly one year
-    expect(computeInterestAccrued(loan, ONE_YEAR_LATER)).toBeCloseTo(12000, 0);
-  });
-
-  it('is 0 when the rate is 0 regardless of type', () => {
-    (['SIMPLE', 'FLAT', 'REDUCING', 'COMPOUND'] as InterestType[]).forEach(t => {
-      expect(computeInterestAccrued(makeLoan({ interestType: t, interestRate: 0 }), ONE_YEAR_LATER)).toBe(0);
-    });
-  });
-
-  it('is 0 before any time has elapsed', () => {
-    const loan = makeLoan({ interestType: 'SIMPLE' });
-    expect(computeInterestAccrued(loan, loan.loanDate)).toBe(0);
+  it('is 0 for a closed loan', () => {
+    const loan = makeLoan({ status: 'CLOSED', paidEMIs: 3, totalEMIs: 12 });
+    expect(computeOutstanding(loan)).toBe(0);
   });
 });
 
-// ── sumPayments ────────────────────────────────────────────────────────────────
+// ── nextEmiDate ────────────────────────────────────────────────────────────────
 
-describe('sumPayments', () => {
-  it('adds up principal and interest separately', () => {
-    const payments = [
-      makePayment({ principalPaid: 10000, interestPaid: 500 }),
-      makePayment({ id: 'pay-2', principalPaid: 5000, interestPaid: 250 }),
-    ];
-    expect(sumPayments(payments)).toEqual({ principalPaid: 15000, interestPaid: 750 });
+describe('nextEmiDate', () => {
+  it('returns null for a closed loan', () => {
+    expect(nextEmiDate(makeLoan({ status: 'CLOSED' }))).toBeNull();
   });
 
-  it('returns zeros for no payments', () => {
-    expect(sumPayments([])).toEqual({ principalPaid: 0, interestPaid: 0 });
+  it('returns null when there are no remaining EMIs', () => {
+    expect(nextEmiDate(makeLoan({ totalEMIs: 12, paidEMIs: 12 }))).toBeNull();
+  });
+
+  it('picks this month when the EMI day is still ahead', () => {
+    // from = 2025-03-01, emiDate = 5 -> 2025-03-05
+    const iso = nextEmiDate(makeLoan({ emiDate: 5 }), new Date(2025, 2, 1));
+    expect(iso).not.toBeNull();
+    const d = new Date(iso!);
+    expect(d.getMonth()).toBe(2); // March
+    expect(d.getDate()).toBe(5);
+  });
+
+  it('rolls to next month when the EMI day has passed', () => {
+    // from = 2025-03-10, emiDate = 5 -> 2025-04-05
+    const iso = nextEmiDate(makeLoan({ emiDate: 5 }), new Date(2025, 2, 10));
+    const d = new Date(iso!);
+    expect(d.getMonth()).toBe(3); // April
+    expect(d.getDate()).toBe(5);
   });
 });
 
 // ── computeLoanSummary ─────────────────────────────────────────────────────────
 
 describe('computeLoanSummary', () => {
-  it('derives outstanding from principal + accrued interest minus payments', () => {
-    const loan = makeLoan({ interestType: 'SIMPLE', principal: 100000, interestRate: 12 });
-    const payments = [makePayment({ principalPaid: 40000, interestPaid: 2000 })];
-
-    const s = computeLoanSummary(loan, payments, ONE_YEAR_LATER);
-
-    expect(s.principalPaid).toBe(40000);
-    expect(s.interestPaid).toBe(2000);
-    expect(s.totalPaid).toBe(42000);
-    expect(s.interestAccrued).toBeCloseTo(12000, 0);
-    expect(s.remainingPrincipal).toBe(60000);
-    expect(s.remainingInterest).toBeCloseTo(10000, 0);
-    expect(s.totalOutstanding).toBeCloseTo(70000, 0);
-    expect(s.isCleared).toBe(false);
+  it('derives remaining EMIs, outstanding, total paid and progress', () => {
+    const loan = makeLoan({ totalEMIs: 12, paidEMIs: 3, monthlyEMI: 10000 });
+    const s = computeLoanSummary(loan, new Date(2025, 2, 1));
+    expect(s.remainingEMIs).toBe(9);
+    expect(s.outstandingAmount).toBe(90000);
+    expect(s.totalPaid).toBe(30000);
+    expect(s.progress).toBeCloseTo(0.25, 2);
+    expect(s.nextEmiDate).not.toBeNull();
   });
 
-  it('never lets the original principal be overwritten (loan ref unchanged)', () => {
-    const loan = makeLoan({ principal: 100000 });
-    computeLoanSummary(loan, [makePayment({ principalPaid: 100000 })], ONE_YEAR_LATER);
-    expect(loan.principal).toBe(100000);
-  });
-
-  it('marks the loan cleared once principal + interest are fully paid', () => {
-    const loan = makeLoan({ interestType: 'NONE', principal: 50000, interestRate: 0 });
-    const s = computeLoanSummary(loan, [makePayment({ principalPaid: 50000 })], ONE_YEAR_LATER);
-    expect(s.remainingPrincipal).toBe(0);
-    expect(s.totalOutstanding).toBe(0);
-    expect(s.isCleared).toBe(true);
-  });
-
-  it('clamps remaining balances at 0 even on overpayment', () => {
-    const loan = makeLoan({ interestType: 'NONE', principal: 50000, interestRate: 0 });
-    const s = computeLoanSummary(loan, [makePayment({ principalPaid: 60000 })], ONE_YEAR_LATER);
-    expect(s.remainingPrincipal).toBe(0);
-    expect(s.totalOutstanding).toBe(0);
+  it('reports full progress and no next EMI for a closed loan', () => {
+    const loan = makeLoan({ status: 'CLOSED', totalEMIs: 12, paidEMIs: 6 });
+    const s = computeLoanSummary(loan);
+    expect(s.outstandingAmount).toBe(0);
+    expect(s.nextEmiDate).toBeNull();
   });
 });
 
-// ── deriveStatus ────────────────────────────────────────────────────────────────
+// ── closureSuggestions ─────────────────────────────────────────────────────────
 
-describe('deriveStatus', () => {
-  it('returns SETTLED once cleared', () => {
-    const loan = makeLoan({ status: 'PENDING', interestType: 'NONE', interestRate: 0 });
-    const s = computeLoanSummary(loan, [makePayment({ principalPaid: loan.principal })], ONE_YEAR_LATER);
-    expect(deriveStatus(loan, s)).toBe('SETTLED');
+describe('closureSuggestions', () => {
+  it('returns no suggestions for a closed loan', () => {
+    expect(closureSuggestions(makeLoan({ status: 'CLOSED' }))).toEqual([]);
   });
 
-  it('keeps BAD_DEBT as a terminal state even if cleared', () => {
-    const loan = makeLoan({ status: 'BAD_DEBT', interestType: 'NONE', interestRate: 0 });
-    const s = computeLoanSummary(loan, [makePayment({ principalPaid: loan.principal })], ONE_YEAR_LATER);
-    expect(deriveStatus(loan, s)).toBe('BAD_DEBT');
+  it('returns no suggestions when the loan is fully paid', () => {
+    expect(closureSuggestions(makeLoan({ totalEMIs: 12, paidEMIs: 12 }))).toEqual([]);
   });
 
-  it('preserves a manual EXPECTED flag while still outstanding', () => {
-    const loan = makeLoan({ status: 'EXPECTED' });
-    const s = computeLoanSummary(loan, [], ONE_YEAR_LATER);
-    expect(deriveStatus(loan, s)).toBe('EXPECTED');
+  it('offers the three closure ideas for an active loan', () => {
+    const suggestions = closureSuggestions(makeLoan({ totalEMIs: 12, paidEMIs: 3 }));
+    const keys = suggestions.map(s => s.key);
+    expect(keys).toContain('INCREASE_EMI');
+    expect(keys).toContain('EXTRA_PRINCIPAL');
+    expect(keys).toContain('OCCASIONAL_PAYMENT');
   });
 
-  it('falls back to PENDING while outstanding with no special flag', () => {
-    const loan = makeLoan({ status: 'PENDING' });
-    const s = computeLoanSummary(loan, [], ONE_YEAR_LATER);
-    expect(deriveStatus(loan, s)).toBe('PENDING');
+  it('estimates a non-negative interest saving when a rate is known', () => {
+    const suggestions = closureSuggestions(
+      makeLoan({ interestRate: 12, monthlyEMI: 10000, totalEMIs: 24, paidEMIs: 2 }),
+    );
+    const increase = suggestions.find(s => s.key === 'INCREASE_EMI');
+    expect(increase).toBeDefined();
+    if (increase?.estimatedSaving != null) {
+      expect(increase.estimatedSaving).toBeGreaterThanOrEqual(0);
+    }
   });
 });

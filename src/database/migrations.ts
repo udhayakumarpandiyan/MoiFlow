@@ -285,6 +285,158 @@ export const MIGRATIONS: Migration[] = [
       );
     },
   },
+
+  {
+    version: 11,
+    description:
+      'Finance module reshaped to EMI-based loans. The previous LENT/BORROWED lending ledger (loans + loan_payments) is replaced by an EMI loan tracker: loan_amount, provider, monthly_emi, emi_date, tenure, total/paid EMIs, ACTIVE/CLOSED status. Adds a configurable gold_loan_providers table for the Gold Loan Comparison section.',
+    up: async (db: SQLiteDatabase) => {
+      // The old loans schema is structurally incompatible with the new EMI
+      // model, so recreate the tables. loan_payments is no longer used.
+      await db.executeSql(`DROP TABLE IF EXISTS loan_payments;`);
+      await db.executeSql(`DROP TABLE IF EXISTS loans;`);
+
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS loans (
+          id                 TEXT PRIMARY KEY,
+          loan_type          TEXT NOT NULL DEFAULT 'PERSONAL'
+                               CHECK (loan_type IN ('CAR','TWO_WHEELER','AGRI','PERSONAL','BUSINESS','CHIT','GOLD','OTHERS')),
+          loan_amount        REAL NOT NULL DEFAULT 0,
+          start_date         TEXT NOT NULL,
+          provider           TEXT NOT NULL DEFAULT '',
+          interest_rate      REAL NOT NULL DEFAULT 0,
+          monthly_emi        REAL NOT NULL DEFAULT 0,
+          emi_date           INTEGER NOT NULL DEFAULT 1,
+          tenure             INTEGER NOT NULL DEFAULT 0,
+          total_emis         INTEGER NOT NULL DEFAULT 0,
+          paid_emis          INTEGER NOT NULL DEFAULT 0,
+          outstanding_amount REAL,
+          status             TEXT NOT NULL DEFAULT 'ACTIVE'
+                               CHECK (status IN ('ACTIVE','CLOSED')),
+          notes              TEXT,
+          created_at         TEXT NOT NULL,
+          updated_at         TEXT NOT NULL,
+          sync_status        INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS gold_loan_providers (
+          id              TEXT PRIMARY KEY,
+          provider        TEXT NOT NULL,
+          interest_rate   REAL NOT NULL DEFAULT 0,
+          amount_per_gram REAL NOT NULL DEFAULT 0,
+          ltv             REAL NOT NULL DEFAULT 0,
+          processing_fee  REAL NOT NULL DEFAULT 0,
+          other_charges   TEXT,
+          updated_at      TEXT NOT NULL
+        );
+      `);
+
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_loans_type ON loans(loan_type);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_loans_status ON loans(status);`,
+      );
+    },
+  },
+
+  {
+    version: 12,
+    description:
+      'Finance module — Business section. Adds business_parties (customers + suppliers) and business_transactions (sales + purchases). Outstanding amounts and payment status are derived from amount − amount_settled, never stored.',
+    up: async (db: SQLiteDatabase) => {
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS business_parties (
+          id           TEXT PRIMARY KEY,
+          kind         TEXT NOT NULL DEFAULT 'CUSTOMER'
+                         CHECK (kind IN ('CUSTOMER','SUPPLIER')),
+          name         TEXT NOT NULL,
+          phone        TEXT,
+          address      TEXT,
+          notes        TEXT,
+          created_at   TEXT NOT NULL,
+          updated_at   TEXT NOT NULL,
+          sync_status  INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS business_transactions (
+          id             TEXT PRIMARY KEY,
+          kind           TEXT NOT NULL DEFAULT 'SALE'
+                           CHECK (kind IN ('SALE','PURCHASE')),
+          party_id       TEXT NOT NULL,
+          date           TEXT NOT NULL,
+          description    TEXT,
+          quantity       REAL NOT NULL DEFAULT 0,
+          amount         REAL NOT NULL DEFAULT 0,
+          amount_settled REAL NOT NULL DEFAULT 0,
+          notes          TEXT,
+          created_at     TEXT NOT NULL,
+          updated_at     TEXT NOT NULL,
+          sync_status    INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_biz_parties_kind ON business_parties(kind);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_biz_txn_kind ON business_transactions(kind);`,
+      );
+      await db.executeSql(
+        `CREATE INDEX IF NOT EXISTS idx_biz_txn_party ON business_transactions(party_id);`,
+      );
+    },
+  },
+
+  {
+    version: 13,
+    description:
+      'Finance module — Credits. A per-person money-transaction ledger separate from EMI loans: IN (money to receive) / OUT (money to give), with interest rate, person/village/mobile details, optional event link, UPCOMING/SETTLED status and a settled date. Marking a credit SETTLED only flips its status + records settled_date; the row is always preserved in history.',
+    up: async (db: SQLiteDatabase) => {
+      const safeIndex = async (sql: string) => {
+        try {
+          await db.executeSql(sql);
+        } catch (_) {}
+      };
+
+      await db.executeSql(`
+        CREATE TABLE IF NOT EXISTS credits (
+          id            TEXT PRIMARY KEY,
+          direction     TEXT NOT NULL DEFAULT 'IN'
+                          CHECK (direction IN ('IN','OUT')),
+          amount        REAL NOT NULL DEFAULT 0,
+          interest_rate REAL NOT NULL DEFAULT 0,
+          txn_date      TEXT NOT NULL,
+          person        TEXT NOT NULL DEFAULT '',
+          village       TEXT,
+          mobile_number TEXT,
+          event_id      TEXT,
+          event_name    TEXT,
+          notes         TEXT,
+          status        TEXT NOT NULL DEFAULT 'UPCOMING'
+                          CHECK (status IN ('UPCOMING','SETTLED')),
+          settled_date  TEXT,
+          created_at    TEXT NOT NULL,
+          updated_at    TEXT NOT NULL,
+          sync_status   INTEGER NOT NULL DEFAULT 0
+        );
+      `);
+
+      await safeIndex(
+        `CREATE INDEX IF NOT EXISTS idx_credits_direction ON credits(direction);`,
+      );
+      await safeIndex(
+        `CREATE INDEX IF NOT EXISTS idx_credits_status ON credits(status);`,
+      );
+      await safeIndex(
+        `CREATE INDEX IF NOT EXISTS idx_credits_date ON credits(txn_date);`,
+      );
+    },
+  },
 ];
 
 /**

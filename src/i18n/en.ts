@@ -33,96 +33,317 @@ const en = {
 
     // Loans
     loans:            'Loans',
-    lent:             'Money I Lent',
-    borrowed:         'Money I Borrowed',
     toReceive:        'To Receive',
     toSettle:         'To Settle',
     addLoan:          'Add Loan',
     editLoan:         'Edit Loan',
     newLoan:          'New Loan',
     noLoans:          'No loans yet',
-    noLoansDesc:      'Add a loan to start tracking.',
+    noLoansDesc:      'Add a loan to start tracking your EMIs.',
+    activeLoans:      'Active',
+    closedLoans:      'Closed',
 
     // Fields
-    direction:        'Direction',
     loanTypeLabel:    'Loan Type',
-    partyTypeLabel:   'Party Type',
-    party:            'Person / Business',
-    partyNamePerson:  'Person name',
-    partyNameBusiness:'Business / Organization name',
-    village:          'Village',
-    phone:            'Mobile number',
-    contact:          'Contact details',
-    principal:        'Principal Amount',
+    loanAmount:       'Loan Amount',
+    startDate:        'Start Date',
+    provider:         'Provider',
     interestRate:     'Interest Rate (% p.a.)',
-    interestTypeLabel:'Interest Calculation',
-    loanDate:         'Loan Date',
-    dueDate:          'Due Date',
+    monthlyEMI:       'Monthly EMI',
+    emi:              'EMI',
+    emiDateLabel:     'EMI Date (day of month)',
+    emiDateInvalid:   'Enter a day between 1 and 31.',
+    tenure:           'Tenure (months)',
+    months:           'months',
+    totalEMIs:        'Total EMIs',
+    paidEmis:         'Paid EMIs',
+    remainingEmis:    'Remaining EMIs',
+    emisShort:        'EMIs',
+    nextEmi:          'Next EMI',
+    outstanding:      'Outstanding',
+    totalOutstanding: 'Total Outstanding',
     notes:            'Notes',
     optional:         'optional',
 
-    // Computed breakdown
-    interestAccrued:  'Interest Accrued',
-    principalPaid:    'Principal Paid',
-    interestPaid:     'Interest Paid',
-    totalPaid:        'Total Paid',
-    remainingPrincipal:'Remaining Principal',
-    remainingInterest:'Remaining Interest',
-    totalOutstanding: 'Total Outstanding',
-    principalReceived:'Principal Received',
-    interestReceived: 'Interest Received',
-    totalReceivable:  'Total to Receive',
-    totalPayable:     'Total to Settle',
-
-    // Payments
-    recordPayment:    'Record Payment',
-    recordReceipt:    'Record Receipt',
-    paymentHistory:   'Payment History',
-    noPayments:       'No payments recorded yet',
-    paymentAmount:    'Amount',
-    paymentPrincipal: 'Towards Principal',
-    paymentInterest:  'Towards Interest',
-    paymentDate:      'Payment Date',
-    paymentRequired:  'Enter a principal or interest amount.',
-    paymentFailed:    'Could not record the payment.',
-
-    // Status
-    changeStatus:     'Change Status',
-    markSettled:      'Mark Settled',
-    markBadDebt:      'Mark Bad Debt',
-    markExpected:     'Mark Expected to Settle',
-    markPending:      'Mark Pending',
-
     saveFailed:       'Could not save the loan.',
     deleteLoan:       'Delete Loan',
-    deleteConfirm:    'Delete this loan and its payment history?',
+    deleteConfirm:    'Delete this loan? This cannot be undone.',
+
+    // Actions
+    setEmiReminder:     'Set EMI Reminder',
+    setDueDateReminder: 'Set Due Date Reminder',
+    markClosed:         'Mark as Closed',
+    markClosedConfirm:  'Mark this loan as closed? It will be kept in your history.',
+    reminder:           'Reminder',
+    reminderSet:        'Reminder scheduled for the next EMI.',
+    reminderNotSet:     'Could not schedule the reminder. Check notification permission and the loan status.',
+
+    // Close loan faster
+    closeFaster:      'Close Loan Faster',
+    estSaving:        'Est. interest saving',
+    closure: {
+      INCREASE_EMI:       'Increase your EMI',
+      EXTRA_PRINCIPAL:    'Make extra principal payments',
+      OCCASIONAL_PAYMENT: 'Make occasional additional payments',
+    },
+    closureDesc: {
+      INCREASE_EMI:       'Paying a slightly higher EMI each month clears the loan sooner.',
+      EXTRA_PRINCIPAL:    'A lump-sum towards principal reduces both tenure and interest.',
+      OCCASIONAL_PAYMENT: 'Whenever you have spare funds, put them towards the loan.',
+    },
+
+    // Gold loan comparison
+    goldComparison:     'Gold Loan Comparison',
+    goldComparisonNote: 'Rates and charges are entered by you and can be updated anytime. Verify with the provider before deciding.',
+    goldNoProviders:    'No providers added yet. Tap + to add one.',
+    goldProviderTitle:  'Gold Loan Provider',
+    amountPerGram:      'Loan / gram',
+    ltv:                'LTV',
+    processingFee:      'Processing Fee',
+    otherCharges:       'Other Charges',
 
     loanType: {
-      PERSONAL:     'Personal',
-      BUSINESS:     'Business',
-      CAR:          'Car',
-      GOLD:         'Gold',
-      AGRICULTURAL: 'Agricultural',
-      HOME:         'Home',
-      EDUCATION:    'Education',
-      OTHER:        'Other',
+      CAR:         'Car Loan',
+      TWO_WHEELER: 'Two-Wheeler Loan',
+      AGRI:        'Agri Loan',
+      PERSONAL:    'Personal Loan',
+      BUSINESS:    'Business Loan',
+      CHIT:        'Chit',
+      GOLD:        'Gold Loan',
+      OTHERS:      'Others',
     },
-    interestType: {
-      NONE:     'No Interest',
-      SIMPLE:   'Simple',
-      FLAT:     'Flat',
-      REDUCING: 'Reducing Balance',
-      COMPOUND: 'Compound',
+    loanStatus: {
+      ACTIVE: 'Active',
+      CLOSED: 'Closed',
     },
-    status: {
-      PENDING:  'Pending',
-      EXPECTED: 'Expected to Settle',
+
+    // Dashboard overview
+    overview:           'Overview',
+    quickAccess:        'Quick Access',
+    business:           'Business',
+    viewAll:            'View all',
+    noFinanceData:      'No finance data yet',
+    noFinanceDataDesc:  'Add a loan, credit or business transaction to see your overview here.',
+
+    // Credits
+    credits:            'Credits',
+    addCredit:          'Add Credit',
+    editCredit:         'Edit Credit',
+    newCredit:          'New Credit',
+    noCredits:          'No credits yet',
+    noCreditsDesc:      'Add a transaction to track money to receive or give.',
+    toGive:             'To Give',
+    settled:            'Settled',
+    netPending:         'Net Pending',
+    upcoming:           'Upcoming',
+    settledSection:     'Settled',
+    noUpcoming:         'No upcoming transactions.',
+    noSettled:          'No settled transactions.',
+
+    // Credit fields
+    type:               'Type',
+    amount:             'Amount',
+    interestRatePct:    'Interest Rate (%)',
+    date:               'Date',
+    person:             'Person',
+    village:            'Village',
+    mobileNumber:       'Mobile Number',
+    event:              'Event',
+    selectEvent:        'Select an event',
+    noEvent:            'No event',
+    noEventsAvailable:  'No events available.',
+    interest:           'Interest',
+    settledDate:        'Settled Date',
+
+    directionIn:        'IN',
+    directionOut:       'OUT',
+    directionInLong:    'IN · To Receive',
+    directionOutLong:   'OUT · To Give',
+
+    // Credit validation
+    amountRequired:     'Enter an amount greater than 0.',
+    invalidRate:        'Enter a valid interest rate.',
+    invalidMobile:      'Enter a valid mobile number.',
+
+    // Credit actions
+    markSettled:        'Mark as Settled',
+    markSettledConfirm: 'Mark this transaction as settled? It will be kept in your history.',
+    reopen:             'Move to Upcoming',
+    reopenConfirm:      'Move this transaction back to Upcoming?',
+    setDateReminder:    'Set Reminder',
+    deleteCredit:       'Delete Credit',
+    deleteCreditConfirm:'Delete this transaction? This cannot be undone.',
+
+    creditStatus: {
+      UPCOMING: 'Upcoming',
       SETTLED:  'Settled',
-      BAD_DEBT: 'Bad Debt',
     },
-    partyTypeOpt: {
-      PERSON:   'Person',
-      BUSINESS: 'Business / Organization',
+    filter: {
+      ALL:      'All',
+      IN:       'IN',
+      OUT:      'OUT',
+      UPCOMING: 'Upcoming',
+      SETTLED:  'Settled',
+    },
+
+    // Reports
+    reports:            'Reports',
+    reportsSubtitle:    'Credits, loans and business insights',
+    reportOverall:      'Overall',
+    noReportData:       'Not enough data yet',
+    noReportDataDesc:   'Add credits, loans or business transactions to see reports here.',
+    noTrendData:        'No activity in this period.',
+
+    // Report metrics
+    totalIn:            'Total IN',
+    totalOut:           'Total OUT',
+    totalLoans:         'Total Loans',
+    totalLoanAmount:    'Total Loan Amount',
+    totalEMILabel:      'Total EMI',
+    creditTrend:        'Credit Trend',
+    loanTrend:          'Loan Trend',
+    salesPurchaseTrend: 'Sales vs Purchases',
+
+    // Overall growth
+    netPosition:        'Net Financial Position',
+    growth:             'Growth',
+    downfall:           'Downfall',
+    currentPeriod:      'Current Period',
+    previousPeriod:     'Previous Period',
+    majorPositives:     'Major Positive Changes',
+    majorNegatives:     'Major Negative Changes',
+    noSignificantChange:'No significant change vs the previous period.',
+    changeKey: {
+      creditIn:  'Money to receive',
+      creditOut: 'Money to give',
+      sales:     'Sales',
+      purchases: 'Purchases',
+      newLoans:  'New loans',
+    },
+
+    // Period selector
+    period: {
+      WEEKLY:  'Weekly',
+      MONTHLY: 'Monthly',
+      YEARLY:  'Yearly',
+      CUSTOM:  'Custom',
+    },
+
+    // AI summary
+    aiSummary:          'AI Summary',
+    aiNote:             'Based only on your MoiFlow data.',
+    ai: {
+      noData:           'There is not enough data yet to summarise your finances.',
+      improved:         'Your overall financial position improved by {{percent}}% this period.',
+      declined:         'Your overall financial position declined by {{percent}}% this period.',
+      flat:             'Your overall financial position stayed about the same this period.',
+      receivablesUp:    'Money to receive increased by {{percent}}%.',
+      receivablesDown:  'Money to receive decreased by {{percent}}%.',
+      loansUp:          'Outstanding loans increased by {{percent}}%.',
+      loansDown:        'Outstanding loans decreased by {{percent}}%.',
+      salesUp:          'Sales increased by {{percent}}%.',
+      purchasesUp:      'Purchases increased by {{percent}}%.',
+    },
+
+    // Suggestions
+    suggestions:        'Suggestions',
+    suggestion: {
+      reduceOutstandingLoans: 'Consider reducing your outstanding loan balance to save on interest.',
+      followUpReceivables:    'Follow up on pending receivables to improve your cash flow.',
+      controlPurchases:       'Your purchases are rising. Review them to keep costs in check.',
+      improveSales:           'Sales dipped this period. A follow-up push could help.',
+      clearPayables:          'Clear supplier payables on time to maintain good relationships.',
+      settlePendingCredits:   'Settle the money you owe to keep your credits up to date.',
+      healthy:                'Your finances look balanced. Keep it up.',
+    },
+  },
+
+  business: {
+    title:              'Business',
+
+    // Sections
+    customers:          'Customers',
+    suppliers:          'Suppliers',
+    purchases:          'Purchases',
+    sales:              'Sales',
+
+    // Summary
+    totalSales:         'Total Sales',
+    totalPurchases:     'Total Purchases',
+    customerReceivables:'Customer Receivables',
+    supplierPayables:   'Supplier Payables',
+
+    // Party singular
+    customer:           'Customer',
+    supplier:           'Supplier',
+    unknownParty:       'Unknown',
+
+    // Party fields
+    name:               'Name',
+    phone:              'Phone Number',
+    address:            'Address',
+    notes:              'Notes',
+    noPhone:            'No phone',
+    last:               'Last',
+
+    // Party actions
+    addCustomer:        'Add Customer',
+    editCustomer:       'Edit Customer',
+    deleteCustomer:     'Delete Customer',
+    addSupplier:        'Add Supplier',
+    editSupplier:       'Edit Supplier',
+    deleteSupplier:     'Delete Supplier',
+    deleteParty:        'Delete',
+    deletePartyConfirm: 'Delete this record and all its transactions? This cannot be undone.',
+
+    // Party totals
+    amountReceived:     'Amount Received',
+    amountPaid:         'Amount Paid',
+    outstanding:        'Outstanding',
+    transactionHistory: 'Transaction History',
+    noTransactions:     'No transactions yet',
+
+    // Transaction fields
+    selectParty:        'Select',
+    selectCustomer:     'Select Customer',
+    selectSupplier:     'Select Supplier',
+    saleDate:           'Sale Date',
+    purchaseDate:       'Purchase Date',
+    itemDescription:    'Item / Description',
+    quantity:           'Quantity',
+    amount:             'Amount',
+    paymentStatusLabel: 'Payment Status',
+
+    // Transaction actions
+    addSale:            'Add Sale',
+    editSale:           'Edit Sale',
+    sale:               'Sale',
+    addPurchase:        'Add Purchase',
+    editPurchase:       'Edit Purchase',
+    purchase:           'Purchase',
+    recordPayment:      'Record Payment',
+    recordReceipt:      'Record Receipt',
+    deleteTransaction:  'Delete Transaction',
+    deleteTransactionConfirm: 'Delete this transaction? This cannot be undone.',
+    paymentRequired:    'Enter a payment amount.',
+    paymentFailed:      'Could not record the payment.',
+
+    // Empty states
+    noCustomers:        'No customers yet',
+    noCustomersDesc:    'Add a customer to start tracking sales.',
+    noSuppliers:        'No suppliers yet',
+    noSuppliersDesc:    'Add a supplier to start tracking purchases.',
+    noPurchases:        'No purchases yet',
+    noPurchasesDesc:    'Record a purchase to start tracking.',
+    noSales:            'No sales yet',
+    noSalesDesc:        'Record a sale to start tracking.',
+
+    saveFailed:         'Could not save. Please try again.',
+
+    paymentStatus: {
+      UNPAID:  'Unpaid',
+      PARTIAL: 'Partial',
+      PAID:    'Paid',
     },
   },
 

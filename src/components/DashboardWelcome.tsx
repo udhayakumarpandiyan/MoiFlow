@@ -6,71 +6,55 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { useTheme } from '../context/ThemeContext';
 
-interface DashboardWelcomeProps {
-  /** Optional element rendered on the trailing side (e.g. a voice-search button). */
-  rightSlot?: React.ReactNode;
-}
-
 /**
- * Shared "Welcome back / <user name>" header used by both the Moi and Finance
- * dashboards so the greeting stays identical across the two top-level flows.
- * Loads the signed-in user's name from storage on focus (same keys AuthService
- * writes), keeping it consistent no matter which dashboard renders it.
+ * Shared greeting + username block rendered in the persistent header of both
+ * the Moi and Finance tab navigators. Because the header lives ABOVE the tab
+ * navigator it is truly common to every screen in both flows.
+ *
+ * Loads the signed-in user's name from AsyncStorage on focus using the same
+ * keys AuthService writes, so it stays consistent wherever it appears.
  */
-export const DashboardWelcome: React.FC<DashboardWelcomeProps> = ({ rightSlot }) => {
+export const DashboardWelcome: React.FC = () => {
   const { t } = useTranslation();
   const { colors } = useTheme();
   const [userName, setUserName] = useState('');
 
   useFocusEffect(
     useCallback(() => {
-      const loadUserName = async () => {
-        // Primary key used by AuthService, with a fallback to the legacy key.
+      const load = async () => {
         let name = await AsyncStorage.getItem('app.user_name');
-        if (!name) {
-          name = await AsyncStorage.getItem('app.user.name');
-        }
+        if (!name) name = await AsyncStorage.getItem('app.user.name');
         if (name) setUserName(name);
       };
-      loadUserName();
+      load();
     }, []),
   );
 
   return (
-    <View style={styles.row}>
-      <View style={styles.textBlock}>
-        <Text style={[styles.greeting, { color: colors.textMuted }]}>
-          {t('dashboard.greeting')} 👋
-        </Text>
-        <Text style={[styles.title, { color: colors.textPrimary }]}>
-          {userName || t('app.name')}
-        </Text>
-      </View>
-
-      {rightSlot ? <View>{rightSlot}</View> : null}
+    <View style={styles.container}>
+      <Text style={[styles.greeting, { color: colors.textMuted }]}>
+        {t('dashboard.greeting')} 👋
+      </Text>
+      <Text style={[styles.name, { color: colors.textPrimary }]} numberOfLines={1}>
+        {userName || t('app.name')}
+      </Text>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  textBlock: {
-    flexShrink: 1,
+  container: {
+    /* Takes the flex:1 space given by welcomeWrap in the navigator. */
   },
   greeting: {
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.2,
   },
-  title: {
-    fontSize: 19,
-    lineHeight: 28,
+  name: {
+    fontSize: 17,
     fontWeight: '700',
-    marginTop: 4,
+    marginTop: 2,
     letterSpacing: -0.3,
   },
 });

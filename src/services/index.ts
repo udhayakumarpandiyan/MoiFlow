@@ -14,6 +14,8 @@ export {
   reportService,
   pendingService,
   loanService,
+  creditService,
+  businessService,
   syncQueueService,
   backupService,
   settingsService,

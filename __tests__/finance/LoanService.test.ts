@@ -1,26 +1,25 @@
 /**
- * LoanService tests.
+ * LoanService tests (EMI-based loans).
  *
- * Covers: loan validation, per-direction totals aggregation, partial + full
- * payments with append-only history + clamping to outstanding, and automatic
- * status transitions (PENDING -> SETTLED on clear, BAD_DEBT preserved). Uses a
- * FAKE ILoanRepository so no SQLite is required.
+ * Covers: loan validation, CRUD, totals aggregation (outstanding + monthly EMI
+ * across active loans), mark-closed status transition, and gold-provider CRUD.
+ * Uses a FAKE ILoanRepository so no SQLite is required.
  */
 
 import { LoanService } from '../../src/services/LoanService';
 import type { ILoanRepository } from '../../src/repository/interfaces/ILoanRepository';
 import type {
   Loan,
-  LoanPayment,
   LoanFilter,
   CreateLoanInput,
+  GoldLoanProvider,
 } from '../../src/finance/models/Loan';
 
 // ── Fake repository ─────────────────────────────────────────────────────────────
 
 class FakeLoanRepository implements ILoanRepository {
   loans: Loan[] = [];
-  payments: LoanPayment[] = [];
+  goldProviders: GoldLoanProvider[] = [];
 
   async create(loan: Loan): Promise<void> {
     this.loans.push({ ...loan });
@@ -31,49 +30,43 @@ class FakeLoanRepository implements ILoanRepository {
   }
   async delete(id: string): Promise<void> {
     this.loans = this.loans.filter(l => l.id !== id);
-    this.payments = this.payments.filter(p => p.loanId !== id);
   }
   async getById(id: string): Promise<Loan | null> {
     return this.loans.find(l => l.id === id) ?? null;
   }
   async getAll(filter?: LoanFilter): Promise<Loan[]> {
     return this.loans.filter(l => {
-      if (filter?.direction && l.direction !== filter.direction) return false;
       if (filter?.status && l.status !== filter.status) return false;
       if (filter?.loanType && l.loanType !== filter.loanType) return false;
-      if (filter?.partyType && l.partyType !== filter.partyType) return false;
       return true;
     });
   }
-  async addPayment(payment: LoanPayment): Promise<void> {
-    this.payments.push({ ...payment });
+  async getGoldProviders(): Promise<GoldLoanProvider[]> {
+    return [...this.goldProviders];
   }
-  async getPayments(loanId: string): Promise<LoanPayment[]> {
-    return this.payments
-      .filter(p => p.loanId === loanId)
-      .sort((a, b) => a.paymentDate.localeCompare(b.paymentDate));
+  async upsertGoldProvider(provider: GoldLoanProvider): Promise<void> {
+    const i = this.goldProviders.findIndex(p => p.id === provider.id);
+    if (i >= 0) this.goldProviders[i] = { ...provider };
+    else this.goldProviders.push({ ...provider });
   }
-  async getPaymentsForLoans(loanIds: string[]): Promise<Record<string, LoanPayment[]>> {
-    const out: Record<string, LoanPayment[]> = {};
-    for (const id of loanIds) out[id] = await this.getPayments(id);
-    return out;
+  async deleteGoldProvider(id: string): Promise<void> {
+    this.goldProviders = this.goldProviders.filter(p => p.id !== id);
   }
 }
 
 function baseLoanInput(overrides: Partial<CreateLoanInput> = {}): CreateLoanInput {
   return {
-    direction: overrides.direction ?? 'LENT',
     loanType: overrides.loanType ?? 'PERSONAL',
-    partyType: overrides.partyType ?? 'PERSON',
-    partyName: overrides.partyName ?? 'Ravi',
-    partyVillage: overrides.partyVillage ?? null,
-    partyPhone: overrides.partyPhone ?? null,
-    partyContact: overrides.partyContact ?? null,
-    principal: overrides.principal ?? 100000,
-    interestRate: overrides.interestRate ?? 0,
-    interestType: overrides.interestType ?? 'NONE',
-    loanDate: overrides.loanDate ?? '2025-01-01T00:00:00.000Z',
-    dueDate: overrides.dueDate ?? null,
+    loanAmount: overrides.loanAmount ?? 120000,
+    startDate: overrides.startDate ?? '2025-01-01T00:00:00.000Z',
+    provider: overrides.provider ?? 'HDFC Bank',
+    interestRate: overrides.interestRate ?? 12,
+    monthlyEMI: overrides.monthlyEMI ?? 10000,
+    emiDate: overrides.emiDate ?? 5,
+    tenure: overrides.tenure ?? 12,
+    totalEMIs: overrides.totalEMIs ?? 12,
+    paidEMIs: overrides.paidEMIs,
+    outstandingAmount: overrides.outstandingAmount,
     status: overrides.status,
     notes: overrides.notes ?? null,
   };
@@ -88,17 +81,24 @@ function newService() {
 // ── Validation ──────────────────────────────────────────────────────────────────
 
 describe('LoanService validation', () => {
-  it('rejects a missing party name', async () => {
+  it('rejects a missing provider', async () => {
     const { service } = newService();
-    await expect(service.createLoan(baseLoanInput({ partyName: '  ' }))).rejects.toThrow(
-      'PARTY_NAME_REQUIRED',
+    await expect(service.createLoan(baseLoanInput({ provider: '  ' }))).rejects.toThrow(
+      'PROVIDER_REQUIRED',
     );
   });
 
-  it('rejects a non-positive principal', async () => {
+  it('rejects a non-positive loan amount', async () => {
     const { service } = newService();
-    await expect(service.createLoan(baseLoanInput({ principal: 0 }))).rejects.toThrow(
-      'PRINCIPAL_REQUIRED',
+    await expect(service.createLoan(baseLoanInput({ loanAmount: 0 }))).rejects.toThrow(
+      'LOAN_AMOUNT_REQUIRED',
+    );
+  });
+
+  it('rejects a non-positive EMI', async () => {
+    const { service } = newService();
+    await expect(service.createLoan(baseLoanInput({ monthlyEMI: 0 }))).rejects.toThrow(
+      'EMI_REQUIRED',
     );
   });
 
@@ -109,144 +109,132 @@ describe('LoanService validation', () => {
     );
   });
 
-  it('creates a valid loan with a generated id and default PENDING status', async () => {
+  it('creates a valid loan with a generated id and default ACTIVE status', async () => {
     const { service } = newService();
     const loan = await service.createLoan(baseLoanInput());
     expect(loan.id).toBeTruthy();
-    expect(loan.status).toBe('PENDING');
-    expect(loan.principal).toBe(100000);
+    expect(loan.status).toBe('ACTIVE');
+    expect(loan.loanAmount).toBe(120000);
+    expect(loan.paidEMIs).toBe(0);
+  });
+
+  it('clamps the EMI day into the 1–31 range', async () => {
+    const { service } = newService();
+    const loan = await service.createLoan(baseLoanInput({ emiDate: 40 }));
+    expect(loan.emiDate).toBe(31);
   });
 });
 
-// ── Payments: append-only + clamping ───────────────────────────────────────────
+// ── Update ──────────────────────────────────────────────────────────────────────
 
-describe('LoanService.recordPayment', () => {
-  it('records a partial payment and leaves a balance outstanding', async () => {
+describe('LoanService.updateLoan', () => {
+  it('applies partial updates and preserves untouched fields', async () => {
     const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ principal: 100000 }));
+    const loan = await service.createLoan(baseLoanInput({ paidEMIs: 2 }));
 
-    const { summary } = await service.recordPayment({
-      loanId: loan.id,
-      principalPaid: 40000,
-      interestPaid: 0,
-      paymentDate: '2025-06-01T00:00:00.000Z',
-    });
-
-    expect(summary.principalPaid).toBe(40000);
-    expect(summary.remainingPrincipal).toBe(60000);
-    expect(summary.isCleared).toBe(false);
-    // Loan row's principal is never mutated.
-    expect((await service.getLoan(loan.id))!.principal).toBe(100000);
-  });
-
-  it('appends each payment as a new history row (never overwrites)', async () => {
-    const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ principal: 100000 }));
-
-    await service.recordPayment({ loanId: loan.id, principalPaid: 30000, interestPaid: 0 });
-    await service.recordPayment({ loanId: loan.id, principalPaid: 20000, interestPaid: 0 });
-
-    const history = await service.getPayments(loan.id);
-    expect(history).toHaveLength(2);
-    expect(history.map(p => p.principalPaid)).toEqual([30000, 20000]);
-  });
-
-  it('clamps a payment to the outstanding principal', async () => {
-    const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ principal: 100000 }));
-
-    // Attempt to overpay: only 100000 outstanding.
-    const { payment, summary } = await service.recordPayment({
-      loanId: loan.id,
-      principalPaid: 150000,
-      interestPaid: 0,
-    });
-
-    expect(payment.principalPaid).toBe(100000);
-    expect(summary.remainingPrincipal).toBe(0);
-  });
-
-  it('rejects an empty payment', async () => {
-    const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput());
-    await expect(
-      service.recordPayment({ loanId: loan.id, principalPaid: 0, interestPaid: 0 }),
-    ).rejects.toThrow('PAYMENT_AMOUNT_REQUIRED');
-  });
-
-  it('throws for a payment against an unknown loan', async () => {
-    const { service } = newService();
-    await expect(
-      service.recordPayment({ loanId: 'nope', principalPaid: 100, interestPaid: 0 }),
-    ).rejects.toThrow(/Loan not found/);
+    const updated = await service.updateLoan(loan.id, { paidEMIs: 5, monthlyEMI: 12000 });
+    expect(updated.paidEMIs).toBe(5);
+    expect(updated.monthlyEMI).toBe(12000);
+    expect(updated.provider).toBe('HDFC Bank');
   });
 });
 
 // ── Status transitions ─────────────────────────────────────────────────────────
 
 describe('LoanService status transitions', () => {
-  it('auto-advances PENDING -> SETTLED when a full payment clears the loan', async () => {
-    const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ principal: 100000 }));
-
-    const { summary } = await service.recordPayment({
-      loanId: loan.id,
-      principalPaid: 100000,
-      interestPaid: 0,
-    });
-
-    expect(summary.isCleared).toBe(true);
-    expect(summary.loan.status).toBe('SETTLED');
-    expect((await service.getLoan(loan.id))!.status).toBe('SETTLED');
-  });
-
-  it('keeps BAD_DEBT terminal even after a clearing payment', async () => {
-    const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ principal: 100000 }));
-    await service.setStatus(loan.id, 'BAD_DEBT');
-
-    const { summary } = await service.recordPayment({
-      loanId: loan.id,
-      principalPaid: 100000,
-      interestPaid: 0,
-    });
-
-    expect(summary.loan.status).toBe('BAD_DEBT');
-  });
-
-  it('setStatus manually flags a loan as EXPECTED', async () => {
+  it('markClosed flips status to CLOSED and keeps the record', async () => {
     const { service } = newService();
     const loan = await service.createLoan(baseLoanInput());
-    const updated = await service.setStatus(loan.id, 'EXPECTED');
-    expect(updated.status).toBe('EXPECTED');
+
+    const closed = await service.markClosed(loan.id);
+    expect(closed.status).toBe('CLOSED');
+    expect(await service.getLoan(loan.id)).not.toBeNull();
+  });
+
+  it('setStatus can reopen a loan to ACTIVE', async () => {
+    const { service } = newService();
+    const loan = await service.createLoan(baseLoanInput());
+    await service.markClosed(loan.id);
+    const reopened = await service.setStatus(loan.id, 'ACTIVE');
+    expect(reopened.status).toBe('ACTIVE');
   });
 });
 
 // ── Totals aggregation ─────────────────────────────────────────────────────────
 
 describe('LoanService.getTotals', () => {
-  it('aggregates outstanding per direction independently', async () => {
+  it('sums outstanding + monthly EMI across active loans only', async () => {
     const { service } = newService();
-    await service.createLoan(baseLoanInput({ direction: 'LENT', principal: 100000 }));
-    await service.createLoan(baseLoanInput({ direction: 'LENT', principal: 50000 }));
-    await service.createLoan(baseLoanInput({ direction: 'BORROWED', principal: 30000 }));
+    // 9 remaining * 10000 = 90000 outstanding
+    await service.createLoan(baseLoanInput({ totalEMIs: 12, paidEMIs: 3, monthlyEMI: 10000 }));
+    // 5 remaining * 5000 = 25000 outstanding
+    await service.createLoan(baseLoanInput({ totalEMIs: 10, paidEMIs: 5, monthlyEMI: 5000 }));
+    // Closed loan — excluded from outstanding + EMI.
+    await service.createLoan(baseLoanInput({ status: 'CLOSED', monthlyEMI: 8000 }));
 
-    const lent = await service.getTotals('LENT');
-    expect(lent.loanCount).toBe(2);
-    expect(lent.totalPrincipal).toBe(150000);
-    expect(lent.totalOutstanding).toBe(150000);
+    const totals = await service.getTotals();
+    expect(totals.loanCount).toBe(3);
+    expect(totals.activeCount).toBe(2);
+    expect(totals.closedCount).toBe(1);
+    expect(totals.totalOutstanding).toBe(115000);
+    expect(totals.totalMonthlyEMI).toBe(15000);
+  });
+});
 
-    const borrowed = await service.getTotals('BORROWED');
-    expect(borrowed.loanCount).toBe(1);
-    expect(borrowed.totalOutstanding).toBe(30000);
+// ── Gold providers ──────────────────────────────────────────────────────────────
+
+describe('LoanService gold providers', () => {
+  it('rejects a provider with no name', async () => {
+    const { service } = newService();
+    await expect(
+      service.saveGoldProvider({
+        provider: ' ',
+        interestRate: 9,
+        amountPerGram: 5000,
+        ltv: 75,
+        processingFee: 1,
+      }),
+    ).rejects.toThrow('PROVIDER_REQUIRED');
   });
 
-  it('excludes paid-down principal from outstanding totals', async () => {
+  it('saves, lists and deletes a gold provider', async () => {
     const { service } = newService();
-    const loan = await service.createLoan(baseLoanInput({ direction: 'LENT', principal: 100000 }));
-    await service.recordPayment({ loanId: loan.id, principalPaid: 40000, interestPaid: 0 });
+    const saved = await service.saveGoldProvider({
+      provider: 'Muthoot',
+      interestRate: 9.5,
+      amountPerGram: 5200,
+      ltv: 75,
+      processingFee: 0.5,
+      otherCharges: 'Valuation ₹100',
+    });
+    expect(saved.id).toBeTruthy();
 
-    const lent = await service.getTotals('LENT');
-    expect(lent.totalOutstanding).toBe(60000);
+    let list = await service.getGoldProviders();
+    expect(list).toHaveLength(1);
+    expect(list[0].provider).toBe('Muthoot');
+
+    await service.deleteGoldProvider(saved.id);
+    list = await service.getGoldProviders();
+    expect(list).toHaveLength(0);
+  });
+
+  it('updates an existing provider when an id is passed', async () => {
+    const { service } = newService();
+    const saved = await service.saveGoldProvider({
+      provider: 'Manappuram',
+      interestRate: 10,
+      amountPerGram: 5000,
+      ltv: 70,
+      processingFee: 1,
+    });
+
+    await service.saveGoldProvider(
+      { provider: 'Manappuram', interestRate: 8.5, amountPerGram: 5300, ltv: 75, processingFee: 0.5 },
+      saved.id,
+    );
+
+    const list = await service.getGoldProviders();
+    expect(list).toHaveLength(1);
+    expect(list[0].interestRate).toBe(8.5);
   });
 });

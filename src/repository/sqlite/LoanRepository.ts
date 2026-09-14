@@ -1,13 +1,10 @@
 import { getDB } from '../../database/db';
 import {
   Loan,
-  LoanPayment,
   LoanFilter,
-  LoanDirection,
   LoanType,
-  PartyType,
-  InterestType,
   LoanStatus,
+  GoldLoanProvider,
 } from '../../finance/models/Loan';
 import { ILoanRepository } from '../interfaces/ILoanRepository';
 
@@ -18,24 +15,23 @@ export class LoanRepository implements ILoanRepository {
     const db = await getDB();
     await db.executeSql(
       `INSERT INTO loans
-         (id, direction, loan_type, party_type, party_name, party_village,
-          party_phone, party_contact, principal, interest_rate, interest_type,
-          loan_date, due_date, status, notes, created_at, updated_at, sync_status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, loan_type, loan_amount, start_date, provider, interest_rate,
+          monthly_emi, emi_date, tenure, total_emis, paid_emis,
+          outstanding_amount, status, notes, created_at, updated_at, sync_status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         loan.id,
-        loan.direction,
         loan.loanType,
-        loan.partyType,
-        loan.partyName,
-        loan.partyVillage ?? null,
-        loan.partyPhone ?? null,
-        loan.partyContact ?? null,
-        loan.principal,
+        loan.loanAmount,
+        loan.startDate,
+        loan.provider,
         loan.interestRate,
-        loan.interestType,
-        loan.loanDate,
-        loan.dueDate ?? null,
+        loan.monthlyEMI,
+        loan.emiDate,
+        loan.tenure,
+        loan.totalEMIs,
+        loan.paidEMIs,
+        loan.outstandingAmount ?? null,
         loan.status,
         loan.notes ?? null,
         loan.createdAt,
@@ -49,36 +45,34 @@ export class LoanRepository implements ILoanRepository {
     const db = await getDB();
     await db.executeSql(
       `UPDATE loans
-       SET direction    = ?,
-           loan_type     = ?,
-           party_type    = ?,
-           party_name    = ?,
-           party_village = ?,
-           party_phone   = ?,
-           party_contact = ?,
-           principal     = ?,
-           interest_rate = ?,
-           interest_type = ?,
-           loan_date     = ?,
-           due_date      = ?,
-           status        = ?,
-           notes         = ?,
-           updated_at    = ?,
-           sync_status   = ?
+       SET loan_type          = ?,
+           loan_amount        = ?,
+           start_date         = ?,
+           provider           = ?,
+           interest_rate      = ?,
+           monthly_emi        = ?,
+           emi_date           = ?,
+           tenure             = ?,
+           total_emis         = ?,
+           paid_emis          = ?,
+           outstanding_amount = ?,
+           status             = ?,
+           notes              = ?,
+           updated_at         = ?,
+           sync_status        = ?
        WHERE id = ?`,
       [
-        loan.direction,
         loan.loanType,
-        loan.partyType,
-        loan.partyName,
-        loan.partyVillage ?? null,
-        loan.partyPhone ?? null,
-        loan.partyContact ?? null,
-        loan.principal,
+        loan.loanAmount,
+        loan.startDate,
+        loan.provider,
         loan.interestRate,
-        loan.interestType,
-        loan.loanDate,
-        loan.dueDate ?? null,
+        loan.monthlyEMI,
+        loan.emiDate,
+        loan.tenure,
+        loan.totalEMIs,
+        loan.paidEMIs,
+        loan.outstandingAmount ?? null,
         loan.status,
         loan.notes ?? null,
         loan.updatedAt,
@@ -90,8 +84,6 @@ export class LoanRepository implements ILoanRepository {
 
   async delete(id: string): Promise<void> {
     const db = await getDB();
-    // Remove payment history first (defensive — FK also cascades).
-    await db.executeSql(`DELETE FROM loan_payments WHERE loan_id = ?`, [id]);
     await db.executeSql(`DELETE FROM loans WHERE id = ?`, [id]);
   }
 
@@ -110,83 +102,64 @@ export class LoanRepository implements ILoanRepository {
     const conditions: string[] = [];
     const params: (string | number | null)[] = [];
 
-    if (filter?.direction) {
-      conditions.push('direction = ?');
-      params.push(filter.direction);
+    if (filter?.loanType) {
+      conditions.push('loan_type = ?');
+      params.push(filter.loanType);
     }
     if (filter?.status) {
       conditions.push('status = ?');
       params.push(filter.status);
     }
-    if (filter?.loanType) {
-      conditions.push('loan_type = ?');
-      params.push(filter.loanType);
-    }
-    if (filter?.partyType) {
-      conditions.push('party_type = ?');
-      params.push(filter.partyType);
-    }
     if (filter?.keyword) {
-      conditions.push('(party_name LIKE ? OR party_village LIKE ? OR notes LIKE ?)');
+      conditions.push('(provider LIKE ? OR notes LIKE ?)');
       const kw = `%${filter.keyword}%`;
-      params.push(kw, kw, kw);
+      params.push(kw, kw);
     }
 
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     const [result] = await db.executeSql(
-      `SELECT * FROM loans ${where} ORDER BY loan_date DESC, created_at DESC`,
+      `SELECT * FROM loans ${where} ORDER BY start_date DESC, created_at DESC`,
       params,
     );
     return this.mapLoans(result);
   }
 
-  // ── Payments (append-only) ───────────────────────────────────────────────────
+  // ── Gold loan providers (configurable comparison) ────────────────────────────
 
-  async addPayment(payment: LoanPayment): Promise<void> {
+  async getGoldProviders(): Promise<GoldLoanProvider[]> {
+    const db = await getDB();
+    const [result] = await db.executeSql(
+      `SELECT * FROM gold_loan_providers ORDER BY provider ASC`,
+    );
+    const items: GoldLoanProvider[] = [];
+    for (let i = 0; i < result.rows.length; i++) {
+      items.push(this.mapGoldProvider(result.rows.item(i)));
+    }
+    return items;
+  }
+
+  async upsertGoldProvider(provider: GoldLoanProvider): Promise<void> {
     const db = await getDB();
     await db.executeSql(
-      `INSERT INTO loan_payments
-         (id, loan_id, principal_paid, interest_paid, payment_date, note, created_at, sync_status)
+      `INSERT OR REPLACE INTO gold_loan_providers
+         (id, provider, interest_rate, amount_per_gram, ltv, processing_fee, other_charges, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        payment.id,
-        payment.loanId,
-        payment.principalPaid,
-        payment.interestPaid,
-        payment.paymentDate,
-        payment.note ?? null,
-        payment.createdAt,
-        payment.syncStatus,
+        provider.id,
+        provider.provider,
+        provider.interestRate,
+        provider.amountPerGram,
+        provider.ltv,
+        provider.processingFee,
+        provider.otherCharges ?? null,
+        provider.updatedAt,
       ],
     );
   }
 
-  async getPayments(loanId: string): Promise<LoanPayment[]> {
+  async deleteGoldProvider(id: string): Promise<void> {
     const db = await getDB();
-    const [result] = await db.executeSql(
-      `SELECT * FROM loan_payments WHERE loan_id = ? ORDER BY payment_date ASC, created_at ASC`,
-      [loanId],
-    );
-    return this.mapPayments(result);
-  }
-
-  async getPaymentsForLoans(
-    loanIds: string[],
-  ): Promise<Record<string, LoanPayment[]>> {
-    const map: Record<string, LoanPayment[]> = {};
-    if (loanIds.length === 0) return map;
-    const db = await getDB();
-    const placeholders = loanIds.map(() => '?').join(', ');
-    const [result] = await db.executeSql(
-      `SELECT * FROM loan_payments WHERE loan_id IN (${placeholders})
-       ORDER BY payment_date ASC, created_at ASC`,
-      loanIds,
-    );
-    const payments = this.mapPayments(result);
-    for (const p of payments) {
-      (map[p.loanId] ??= []).push(p);
-    }
-    return map;
+    await db.executeSql(`DELETE FROM gold_loan_providers WHERE id = ?`, [id]);
   }
 
   // ── Mappers ────────────────────────────────────────────────────────────────
@@ -194,19 +167,19 @@ export class LoanRepository implements ILoanRepository {
   private mapLoan(row: Record<string, unknown>): Loan {
     return {
       id: String(row.id),
-      direction: (row.direction as LoanDirection) ?? 'LENT',
       loanType: (row.loan_type as LoanType) ?? 'PERSONAL',
-      partyType: (row.party_type as PartyType) ?? 'PERSON',
-      partyName: String(row.party_name ?? ''),
-      partyVillage: row.party_village ? String(row.party_village) : null,
-      partyPhone: row.party_phone ? String(row.party_phone) : null,
-      partyContact: row.party_contact ? String(row.party_contact) : null,
-      principal: Number(row.principal) || 0,
+      loanAmount: Number(row.loan_amount) || 0,
+      startDate: String(row.start_date),
+      provider: String(row.provider ?? ''),
       interestRate: Number(row.interest_rate) || 0,
-      interestType: (row.interest_type as InterestType) ?? 'NONE',
-      loanDate: String(row.loan_date),
-      dueDate: row.due_date ? String(row.due_date) : null,
-      status: (row.status as LoanStatus) ?? 'PENDING',
+      monthlyEMI: Number(row.monthly_emi) || 0,
+      emiDate: Number(row.emi_date) || 1,
+      tenure: Number(row.tenure) || 0,
+      totalEMIs: Number(row.total_emis) || 0,
+      paidEMIs: Number(row.paid_emis) || 0,
+      outstandingAmount:
+        row.outstanding_amount != null ? Number(row.outstanding_amount) : null,
+      status: (row.status as LoanStatus) ?? 'ACTIVE',
       notes: row.notes ? String(row.notes) : null,
       createdAt: String(row.created_at),
       updatedAt: String(row.updated_at),
@@ -224,26 +197,16 @@ export class LoanRepository implements ILoanRepository {
     return items;
   }
 
-  private mapPayment(row: Record<string, unknown>): LoanPayment {
+  private mapGoldProvider(row: Record<string, unknown>): GoldLoanProvider {
     return {
       id: String(row.id),
-      loanId: String(row.loan_id),
-      principalPaid: Number(row.principal_paid) || 0,
-      interestPaid: Number(row.interest_paid) || 0,
-      paymentDate: String(row.payment_date),
-      note: row.note ? String(row.note) : null,
-      createdAt: String(row.created_at),
-      syncStatus: Number(row.sync_status) || 0,
+      provider: String(row.provider ?? ''),
+      interestRate: Number(row.interest_rate) || 0,
+      amountPerGram: Number(row.amount_per_gram) || 0,
+      ltv: Number(row.ltv) || 0,
+      processingFee: Number(row.processing_fee) || 0,
+      otherCharges: row.other_charges ? String(row.other_charges) : null,
+      updatedAt: String(row.updated_at),
     };
-  }
-
-  private mapPayments(result: {
-    rows: { length: number; item: (i: number) => Record<string, unknown> };
-  }): LoanPayment[] {
-    const items: LoanPayment[] = [];
-    for (let i = 0; i < result.rows.length; i++) {
-      items.push(this.mapPayment(result.rows.item(i)));
-    }
-    return items;
   }
 }

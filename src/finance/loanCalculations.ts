@@ -1,127 +1,192 @@
-import { Loan, LoanPayment, LoanSummary } from './models/Loan';
+import { Loan, LoanSummary, ClosureSuggestion } from './models/Loan';
 
 /**
- * Pure, dependency-free loan math. Given a loan + its payment history, derive
- * interest accrued, amounts paid, and outstanding balances. Nothing here mutates
- * the loan — every value is computed on demand so the original principal is
- * always preserved.
+ * Pure, dependency-free loan math for EMI-based loans. Given a loan's plan
+ * (amount, EMI, tenure, total/paid EMIs), derive remaining EMIs, outstanding
+ * amount, next EMI date and "close faster" suggestions. Nothing here mutates
+ * the loan.
  */
 
-const MS_PER_YEAR = 365 * 24 * 60 * 60 * 1000;
-/** Balances within this many rupees are treated as fully cleared. */
-const CLEAR_EPSILON = 0.5;
-
-/** Fractional years between two ISO dates (never negative). */
-export function yearsBetween(fromISO: string, toISO: string): number {
-  const from = Date.parse(fromISO);
-  const to = Date.parse(toISO);
-  if (Number.isNaN(from) || Number.isNaN(to)) return 0;
-  const diff = to - from;
-  return diff > 0 ? diff / MS_PER_YEAR : 0;
+/** Remaining EMIs = totalEMIs − paidEMIs, clamped ≥ 0. */
+export function remainingEMIs(loan: Loan): number {
+  return Math.max((loan.totalEMIs || 0) - (loan.paidEMIs || 0), 0);
 }
 
 /**
- * Interest accrued on a loan from its loanDate up to `asOf`.
- *
- * Interest types:
- *  - NONE:     0
- *  - SIMPLE / FLAT: principal * rate% * elapsedYears (on the original principal)
- *  - REDUCING: interest on the currently-outstanding principal for the elapsed
- *              period. Since payments happen over time, we approximate using the
- *              principal still outstanding as of `asOf` (principal − principalPaid).
- *              This keeps it a pure function of the summary snapshot.
- *  - COMPOUND: principal * ((1 + rate%)^elapsedYears − 1), compounded annually.
- *
- * `principalPaidSoFar` is only used by REDUCING to reduce the interest base.
+ * Outstanding amount. Uses the stored value when provided (e.g. entered from a
+ * bank statement); otherwise estimates it as remainingEMIs × monthlyEMI.
  */
-export function computeInterestAccrued(
-  loan: Loan,
-  asOf: string,
-  principalPaidSoFar = 0,
-): number {
-  const rate = (Number(loan.interestRate) || 0) / 100;
-  if (rate <= 0 || loan.interestType === 'NONE') return 0;
-
-  const years = yearsBetween(loan.loanDate, asOf);
-  if (years <= 0) return 0;
-
-  const principal = Number(loan.principal) || 0;
-
-  switch (loan.interestType) {
-    case 'SIMPLE':
-    case 'FLAT':
-      return principal * rate * years;
-
-    case 'REDUCING': {
-      const outstandingPrincipal = Math.max(principal - principalPaidSoFar, 0);
-      return outstandingPrincipal * rate * years;
-    }
-
-    case 'COMPOUND':
-      return principal * (Math.pow(1 + rate, years) - 1);
-
-    default:
-      return 0;
+export function computeOutstanding(loan: Loan): number {
+  if (loan.status === 'CLOSED') return 0;
+  if (loan.outstandingAmount != null && loan.outstandingAmount >= 0) {
+    return round2(loan.outstandingAmount);
   }
-}
-
-/** Sum principal + interest paid across the payment history. */
-export function sumPayments(payments: LoanPayment[]): {
-  principalPaid: number;
-  interestPaid: number;
-} {
-  return payments.reduce(
-    (acc, p) => ({
-      principalPaid: acc.principalPaid + (Number(p.principalPaid) || 0),
-      interestPaid: acc.interestPaid + (Number(p.interestPaid) || 0),
-    }),
-    { principalPaid: 0, interestPaid: 0 },
-  );
+  return round2(remainingEMIs(loan) * (Number(loan.monthlyEMI) || 0));
 }
 
 /**
- * Full derived financial summary for a loan as of `asOf` (defaults to now).
- * All values are computed; the loan row is never modified.
+ * ISO date of the next EMI. Based on the loan's emiDate (day of month) relative
+ * to today. Returns null once the loan is closed or fully paid.
  */
+export function nextEmiDate(loan: Loan, from: Date = new Date()): string | null {
+  if (loan.status === 'CLOSED') return null;
+  if (remainingEMIs(loan) <= 0) return null;
+
+  const day = clampDay(loan.emiDate || 1);
+  const candidate = new Date(from.getFullYear(), from.getMonth(), day);
+
+  // If this month's EMI day has already passed, roll to next month.
+  if (candidate.getTime() < startOfDay(from).getTime()) {
+    candidate.setMonth(candidate.getMonth() + 1);
+    candidate.setDate(clampDay(loan.emiDate || 1, candidate));
+  }
+  return candidate.toISOString();
+}
+
+/** Full derived summary for a loan. The loan row is never modified. */
 export function computeLoanSummary(
   loan: Loan,
-  payments: LoanPayment[],
-  asOf: string = new Date().toISOString(),
+  from: Date = new Date(),
 ): LoanSummary {
-  const { principalPaid, interestPaid } = sumPayments(payments);
-
-  const principal = Number(loan.principal) || 0;
-  const interestAccrued = round2(
-    computeInterestAccrued(loan, asOf, principalPaid),
-  );
-
-  const remainingPrincipal = round2(Math.max(principal - principalPaid, 0));
-  const remainingInterest = round2(Math.max(interestAccrued - interestPaid, 0));
-  const totalOutstanding = round2(remainingPrincipal + remainingInterest);
+  const remaining = remainingEMIs(loan);
+  const outstanding = computeOutstanding(loan);
+  const totalPaid = round2((loan.paidEMIs || 0) * (Number(loan.monthlyEMI) || 0));
+  const progress =
+    loan.totalEMIs > 0
+      ? Math.min(Math.max((loan.paidEMIs || 0) / loan.totalEMIs, 0), 1)
+      : loan.status === 'CLOSED'
+      ? 1
+      : 0;
 
   return {
     loan,
-    principalPaid: round2(principalPaid),
-    interestPaid: round2(interestPaid),
-    totalPaid: round2(principalPaid + interestPaid),
-    interestAccrued,
-    remainingPrincipal,
-    remainingInterest,
-    totalOutstanding,
-    isCleared: totalOutstanding <= CLEAR_EPSILON,
+    remainingEMIs: remaining,
+    outstandingAmount: outstanding,
+    totalPaid,
+    nextEmiDate: nextEmiDate(loan, from),
+    progress,
   };
 }
 
 /**
- * Suggest a settlement status from a loan + its summary. The user can always
- * override manually; SETTLED and BAD_DEBT are respected as terminal states.
+ * "Close Loan Faster" suggestions for an ACTIVE loan. Estimated interest
+ * savings are rough approximations based on the loan's own numbers — never
+ * external claims. Returns an empty list for closed / fully-paid loans.
  */
-export function deriveStatus(loan: Loan, summary: LoanSummary): Loan['status'] {
-  if (loan.status === 'BAD_DEBT') return 'BAD_DEBT';
-  if (summary.isCleared) return 'SETTLED';
-  // Respect a manual "expected to settle" flag while still outstanding.
-  if (loan.status === 'EXPECTED') return 'EXPECTED';
-  return 'PENDING';
+export function closureSuggestions(loan: Loan): ClosureSuggestion[] {
+  if (loan.status === 'CLOSED') return [];
+  const remaining = remainingEMIs(loan);
+  if (remaining <= 0) return [];
+
+  const emi = Number(loan.monthlyEMI) || 0;
+  const monthlyRate = (Number(loan.interestRate) || 0) / 100 / 12;
+  const outstanding = computeOutstanding(loan);
+
+  const suggestions: ClosureSuggestion[] = [];
+
+  // 1) Increase EMI by ~10%: estimate months saved + interest saved.
+  const higherEmi = round2(emi * 1.1);
+  const baseInterest = estimateRemainingInterest(outstanding, emi, monthlyRate, remaining);
+  const fasterMonths = monthsToClear(outstanding, higherEmi, monthlyRate);
+  const fasterInterest = estimateRemainingInterest(outstanding, higherEmi, monthlyRate, fasterMonths);
+  suggestions.push({
+    key: 'INCREASE_EMI',
+    estimatedSaving:
+      baseInterest != null && fasterInterest != null
+        ? clampNonNeg(round2(baseInterest - fasterInterest))
+        : null,
+    monthsSaved:
+      fasterMonths != null ? clampNonNeg(remaining - fasterMonths) : null,
+  });
+
+  // 2) One extra principal payment of ~1 EMI now.
+  const afterExtra = clampNonNeg(outstanding - emi);
+  const afterExtraMonths = monthsToClear(afterExtra, emi, monthlyRate);
+  const afterExtraInterest = estimateRemainingInterest(afterExtra, emi, monthlyRate, afterExtraMonths);
+  suggestions.push({
+    key: 'EXTRA_PRINCIPAL',
+    estimatedSaving:
+      baseInterest != null && afterExtraInterest != null
+        ? clampNonNeg(round2(baseInterest - afterExtraInterest))
+        : null,
+    monthsSaved:
+      afterExtraMonths != null ? clampNonNeg(remaining - afterExtraMonths) : null,
+  });
+
+  // 3) Occasional additional payments — qualitative (no single estimate).
+  suggestions.push({ key: 'OCCASIONAL_PAYMENT', estimatedSaving: null, monthsSaved: null });
+
+  return suggestions;
+}
+
+// ── Internal helpers ─────────────────────────────────────────────────────────
+
+/** Total interest still to be paid over `months` at `monthlyRate` on a balance. */
+function estimateRemainingInterest(
+  balance: number,
+  emi: number,
+  monthlyRate: number,
+  months: number | null,
+): number | null {
+  if (months == null || months <= 0) return 0;
+  if (monthlyRate <= 0) return 0; // no interest info → nothing to estimate
+  if (emi <= 0) return null;
+
+  let remaining = balance;
+  let interest = 0;
+  let guard = 0;
+  const cap = Math.min(months, 1200); // hard cap to avoid runaway loops
+  while (remaining > 0.5 && guard < cap) {
+    const monthInterest = remaining * monthlyRate;
+    const principalPart = emi - monthInterest;
+    if (principalPart <= 0) return null; // EMI can't cover interest → unknown
+    interest += monthInterest;
+    remaining -= principalPart;
+    guard += 1;
+  }
+  return round2(interest);
+}
+
+/** Number of months to clear a balance given EMI + monthly rate. */
+function monthsToClear(
+  balance: number,
+  emi: number,
+  monthlyRate: number,
+): number | null {
+  if (balance <= 0) return 0;
+  if (emi <= 0) return null;
+  if (monthlyRate <= 0) return Math.ceil(balance / emi);
+
+  let remaining = balance;
+  let months = 0;
+  while (remaining > 0.5 && months < 1200) {
+    const principalPart = emi - remaining * monthlyRate;
+    if (principalPart <= 0) return null;
+    remaining -= principalPart;
+    months += 1;
+  }
+  return months;
+}
+
+function clampDay(day: number, ref?: Date): number {
+  let d = Math.round(day);
+  if (Number.isNaN(d) || d < 1) d = 1;
+  if (d > 28) {
+    if (ref) {
+      const last = new Date(ref.getFullYear(), ref.getMonth() + 1, 0).getDate();
+      return Math.min(d, last);
+    }
+    return Math.min(d, 28);
+  }
+  return d;
+}
+
+function startOfDay(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+function clampNonNeg(n: number): number {
+  return n > 0 ? n : 0;
 }
 
 function round2(n: number): number {

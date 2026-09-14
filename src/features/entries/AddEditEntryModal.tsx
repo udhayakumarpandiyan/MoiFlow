@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Entry, CreateEntryInput, EntryType } from '../../models/Entry';
 import { MoiEvent } from '../../models/Event';
@@ -49,6 +50,7 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
 }) => {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   // Definite sheet height so the ScrollView shrinks and the sticky footer
   // (Save button) stays visible on Android.
@@ -72,49 +74,92 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
 
   const loadEvents = useCallback(async () => {
     try {
-      const all = await eventService.getAllEvents();
-      setEvents(all);
+      // Only load the user's own events for the IN entry picker.
+      // Other-event entries (OUT) use a free-text name field, not a picker.
+      const myEvents = await eventService.getMyEvents();
+      setEvents(myEvents);
     } catch (err) {
     }
   }, []);
 
   useEffect(() => {
-    if (visible) {
+    if (!visible) return;
+
+    if (entry) {
+      // ── Edit mode ────────────────────────────────────────────────────────
       loadEvents();
-      if (entry) {
-        // Edit mode
-        setEntryType(entry.entryType);
-        setPersonName(entry.personName);
-        setVillageName(entry.villageName ?? '');
-        setCashAmount(entry.cashAmount > 0 ? String(entry.cashAmount) : '');
-        setGoldWeight(entry.goldWeight > 0 ? String(entry.goldWeight) : '');
-        setRemarks(entry.remarks ?? '');
-        setEventId(entry.eventId);
-        setEventName(entry.eventName ?? '');
-        setEventDate(isoToDateInput(entry.eventDate));
-      } else {
-        resetForm();
-        if (voicePrefill) {
-          // Apply voice prefill
-          setEntryType(voicePrefill.entryType);
-          if (voicePrefill.personName) setPersonName(voicePrefill.personName);
-          if (voicePrefill.villageName) setVillageName(voicePrefill.villageName);
-          if (voicePrefill.cashAmount > 0) setCashAmount(String(voicePrefill.cashAmount));
-          if (voicePrefill.goldWeight > 0) setGoldWeight(String(voicePrefill.goldWeight));
-          if (voicePrefill.eventId) setEventId(voicePrefill.eventId);
-          if (voicePrefill.eventName) setEventName(voicePrefill.eventName);
-          if (voicePrefill.eventDate) setEventDate(voicePrefill.eventDate);
-          if (voicePrefill.remarks) setRemarks(voicePrefill.remarks);
-        } else if (forceEntryType) {
-          setEntryType(forceEntryType);
-          if (prefillEventId) setEventId(prefillEventId);
-        } else if (prefillEventId) {
-          setEventId(prefillEventId);
-        }
-      }
+      setEntryType(entry.entryType);
+      setPersonName(entry.personName);
+      setVillageName(entry.villageName ?? '');
+      setCashAmount(entry.cashAmount > 0 ? String(entry.cashAmount) : '');
+      setGoldWeight(entry.goldWeight > 0 ? String(entry.goldWeight) : '');
+      setRemarks(entry.remarks ?? '');
+      setEventId(entry.eventId);
+      setEventName(entry.eventName ?? '');
+      setEventDate(isoToDateInput(entry.eventDate));
+      return;
     }
+
+    // ── Add mode ─────────────────────────────────────────────────────────────
+    // Load own events first, then decide which event to pre-select.
+    const initAdd = async () => {
+      resetForm();
+
+      // Resolve which entry type we'll be creating.
+      const resolvedType: EntryType = voicePrefill
+        ? voicePrefill.entryType
+        : forceEntryType ?? 'OWN_EVENT';
+
+      if (voicePrefill) {
+        // Voice prefill takes the highest priority — apply all its fields.
+        setEntryType(voicePrefill.entryType);
+        if (voicePrefill.personName)   setPersonName(voicePrefill.personName);
+        if (voicePrefill.villageName)  setVillageName(voicePrefill.villageName);
+        if (voicePrefill.cashAmount > 0) setCashAmount(String(voicePrefill.cashAmount));
+        if (voicePrefill.goldWeight > 0) setGoldWeight(String(voicePrefill.goldWeight));
+        if (voicePrefill.eventId)      setEventId(voicePrefill.eventId);
+        if (voicePrefill.eventName)    setEventName(voicePrefill.eventName);
+        if (voicePrefill.eventDate)    setEventDate(voicePrefill.eventDate);
+        if (voicePrefill.remarks)      setRemarks(voicePrefill.remarks);
+        loadEvents(); // still load events list so the picker is populated
+        return;
+      }
+
+      if (forceEntryType) setEntryType(forceEntryType);
+
+      // For IN (OWN_EVENT) entries: auto-select the most recent own event.
+      if (resolvedType === 'OWN_EVENT') {
+        try {
+          const myEvents = await eventService.getMyEvents();
+          setEvents(myEvents);
+
+          // If a specific event was passed from the parent, honour it.
+          // Otherwise pick the most recent own event (getMyEvents returns
+          // them ORDER BY date DESC, so index 0 is the most recent).
+          const targetId = prefillEventId ?? (myEvents.length > 0 ? myEvents[0].id : null);
+          if (targetId) {
+            const target = myEvents.find(e => e.id === targetId) ?? myEvents[0];
+            if (target) {
+              setEventId(target.id);
+              setEventName(target.name);
+              // Prefill event date from the event itself (YYYY-MM-DD string).
+              if (target.date) setEventDate(target.date);
+            }
+          }
+        } catch {
+          loadEvents(); // fallback to populating the picker without auto-select
+        }
+      } else {
+        // OUT entry — no own-event picker; just ensure prefillEventId is applied
+        // if somehow present (edge case).
+        loadEvents();
+        if (prefillEventId) setEventId(prefillEventId);
+      }
+    };
+
+    initAdd();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, entry, prefillEventId, voicePrefill]);
+  }, [visible, entry, prefillEventId, voicePrefill, forceEntryType]);
 
   const resetForm = () => {
     setEntryType('OWN_EVENT');
@@ -311,23 +356,27 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
               autoCapitalize="words"
             />
 
-            <InputField
-              label={`${t('entries.cashAmount')} (?)`}
-              value={cashAmount}
-              onChangeText={setCashAmount}
-              placeholder="0"
-              keyboardType="decimal-pad"
-              error={errors.amount}
-            />
-
-            <InputField
-              label={t('entries.goldWeight')}
-              value={goldWeight}
-              onChangeText={setGoldWeight}
-              placeholder="0"
-              keyboardType="decimal-pad"
-              error={errors.goldWeight}
-            />
+            {/* Cash + Gold on the same row */}
+            <View style={styles.amountRow}>
+              <InputField
+                label={`${t('entries.cashAmount')} (₹)`}
+                value={cashAmount}
+                onChangeText={setCashAmount}
+                placeholder="0"
+                keyboardType="decimal-pad"
+                error={errors.amount}
+                containerStyle={styles.amountField}
+              />
+              <InputField
+                label={t('entries.goldWeight')}
+                value={goldWeight}
+                onChangeText={setGoldWeight}
+                placeholder="0"
+                keyboardType="decimal-pad"
+                error={errors.goldWeight}
+                containerStyle={styles.amountField}
+              />
+            </View>
 
             <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>{t('entries.eventDateOptional')}</Text>
             <TouchableOpacity
@@ -365,8 +414,12 @@ const AddEditEntryModal: React.FC<AddEditEntryModalProps> = ({
 
           </ScrollView>
 
-          {/* Sticky footer — Save button always visible */}
-          <View style={[styles.footer, { borderTopColor: colors.borderLight, backgroundColor: colors.surface }]}>
+          {/* Sticky footer — Save button always visible, clears device home indicator */}
+          <View style={[styles.footer, {
+            borderTopColor: colors.borderLight,
+            backgroundColor: colors.surface,
+            paddingBottom: Math.max(insets.bottom, 16) + 8,
+          }]}>
             <View style={styles.actions}>
               {isEdit ? (
                 <Button
@@ -400,12 +453,18 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
     borderTopLeftRadius: 22, borderTopRightRadius: 22,
     // maxHeight applied inline (screen * 0.9) as a definite pixel value.
+    // Column layout: header (fixed) + scroll (flexible) + footer (fixed).
+    flexDirection: 'column',
     paddingHorizontal: 20, paddingTop: 20,
+    overflow: 'hidden',
   },
-  scroll: { flexShrink: 1 },
+  // flexShrink lets the scroll area yield space so the sticky footer stays
+  // visible; flexGrow:0 keeps it from pushing the footer off-screen.
+  scroll: { flexGrow: 0, flexShrink: 1 },
   footer: {
+    flexShrink: 0,
     paddingTop: 12,
-    paddingBottom: 24,
+    /* paddingBottom driven inline via safe-area insets */
     borderTopWidth: StyleSheet.hairlineWidth,
   },
   header: {
@@ -444,6 +503,14 @@ const styles = StyleSheet.create({
   eventSelectorPlaceholder: { fontSize: 14, color: Colors.textDisabled },
   eventSelectorArrow: { color: Colors.textMuted, fontSize: 13 },
   actions: { flexDirection: 'row', gap: 10, alignItems: 'center', justifyContent: 'center' },
+
+  amountRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  amountField: {
+    flex: 1,
+  },
 
   pickerOverlay: {
     ...StyleSheet.absoluteFill, backgroundColor: Colors.overlay,

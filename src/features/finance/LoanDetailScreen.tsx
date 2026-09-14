@@ -19,11 +19,11 @@ import { useAppTranslation } from '../../hooks/useAppTranslation';
 import { loanService } from '../../services';
 import {
   LoanSummary,
-  LoanPayment,
-  LoanStatus,
-  LOAN_STATUSES,
+  ClosureSuggestion,
+  GoldLoanProvider,
 } from '../../finance/models/Loan';
 import { formatCash, formatDate } from '../../utils/format';
+import { FLOATING_TAB_BAR_CLEARANCE } from '../../theme/typography';
 
 const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigation, route }) => {
   const { colors } = useTheme();
@@ -34,24 +34,32 @@ const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigat
   const loanId: string = route?.params?.loanId ?? '';
 
   const [summary, setSummary] = useState<LoanSummary | null>(null);
-  const [payments, setPayments] = useState<LoanPayment[]>([]);
+  const [suggestions, setSuggestions] = useState<ClosureSuggestion[]>([]);
+  const [goldProviders, setGoldProviders] = useState<GoldLoanProvider[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [payOpen, setPayOpen] = useState(false);
-  const [payPrincipal, setPayPrincipal] = useState('');
-  const [payInterest, setPayInterest] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
+  // Gold provider editor modal
+  const [gpOpen, setGpOpen] = useState(false);
+  const [gpEditId, setGpEditId] = useState<string | undefined>(undefined);
+  const [gpName, setGpName] = useState('');
+  const [gpRate, setGpRate] = useState('');
+  const [gpPerGram, setGpPerGram] = useState('');
+  const [gpLtv, setGpLtv] = useState('');
+  const [gpFee, setGpFee] = useState('');
+  const [gpOther, setGpOther] = useState('');
+  const [gpSaving, setGpSaving] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [s, p] = await Promise.all([
-        loanService.getLoanSummary(loanId),
-        loanService.getPayments(loanId),
-      ]);
+      const s = await loanService.getLoanSummary(loanId);
       setSummary(s);
-      setPayments(p);
+      if (s) {
+        setSuggestions(loanService.getClosureSuggestions(s.loan));
+        if (s.loan.loanType === 'GOLD') {
+          setGoldProviders(await loanService.getGoldProviders());
+        }
+      }
     } catch {
       setSummary(null);
     } finally {
@@ -65,47 +73,93 @@ const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigat
     }, [load]),
   );
 
-  const isLent = summary?.loan.direction === 'LENT';
-
-  const openPay = () => {
+  const handleEmiReminder = async () => {
     if (!summary) return;
-    setPayPrincipal(summary.remainingPrincipal > 0 ? String(summary.remainingPrincipal) : '');
-    setPayInterest(summary.remainingInterest > 0 ? String(summary.remainingInterest) : '');
-    setPayOpen(true);
+    const scheduled = await loanService.setEmiReminder(summary.loan, true);
+    Alert.alert(
+      t('finance.reminder'),
+      scheduled ? t('finance.reminderSet') : t('finance.reminderNotSet'),
+    );
   };
 
-  const confirmPay = async () => {
+  const handleDueDateReminder = async () => {
     if (!summary) return;
-    const p = Number(payPrincipal) || 0;
-    const i = Number(payInterest) || 0;
-    if (p <= 0 && i <= 0) {
-      Alert.alert(t('common.error'), t('finance.paymentRequired'));
+    const scheduled = await loanService.setDueDateReminder(summary.loan, true);
+    Alert.alert(
+      t('finance.reminder'),
+      scheduled ? t('finance.reminderSet') : t('finance.reminderNotSet'),
+    );
+  };
+
+  const handleMarkClosed = () => {
+    if (!summary) return;
+    Alert.alert(t('finance.markClosed'), t('finance.markClosedConfirm'), [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('finance.markClosed'),
+        onPress: async () => {
+          try {
+            await loanService.markClosed(loanId);
+            await load();
+          } catch {
+            Alert.alert(t('common.error'), t('finance.saveFailed'));
+          }
+        },
+      },
+    ]);
+  };
+
+  const openGpEditor = (p?: GoldLoanProvider) => {
+    setGpEditId(p?.id);
+    setGpName(p?.provider ?? '');
+    setGpRate(p ? String(p.interestRate) : '');
+    setGpPerGram(p ? String(p.amountPerGram) : '');
+    setGpLtv(p ? String(p.ltv) : '');
+    setGpFee(p ? String(p.processingFee) : '');
+    setGpOther(p?.otherCharges ?? '');
+    setGpOpen(true);
+  };
+
+  const saveGoldProvider = async () => {
+    if (!gpName.trim()) {
+      Alert.alert(t('common.error'), t('finance.provider'));
       return;
     }
-    setSaving(true);
+    setGpSaving(true);
     try {
-      await loanService.recordPayment({ loanId, principalPaid: p, interestPaid: i });
-      setPayOpen(false);
-      await load();
+      await loanService.saveGoldProvider(
+        {
+          provider: gpName.trim(),
+          interestRate: Number(gpRate) || 0,
+          amountPerGram: Number(gpPerGram) || 0,
+          ltv: Number(gpLtv) || 0,
+          processingFee: Number(gpFee) || 0,
+          otherCharges: gpOther.trim() || null,
+        },
+        gpEditId,
+      );
+      setGpOpen(false);
+      setGoldProviders(await loanService.getGoldProviders());
     } catch {
-      Alert.alert(t('common.error'), t('finance.paymentFailed'));
+      Alert.alert(t('common.error'), t('finance.saveFailed'));
     } finally {
-      setSaving(false);
+      setGpSaving(false);
     }
   };
 
-  const changeStatus = async (status: LoanStatus) => {
-    setStatusOpen(false);
-    try {
-      await loanService.setStatus(loanId, status);
-      await load();
-    } catch {
-      /* ignore */
-    }
+  const deleteGoldProvider = (p: GoldLoanProvider) => {
+    Alert.alert(t('common.delete'), p.provider, [
+      { text: t('common.cancel'), style: 'cancel' },
+      {
+        text: t('common.delete'),
+        style: 'destructive',
+        onPress: async () => {
+          await loanService.deleteGoldProvider(p.id);
+          setGoldProviders(await loanService.getGoldProviders());
+        },
+      },
+    ]);
   };
-
-  const statusColor = (s: string) =>
-    s === 'SETTLED' ? colors.success : s === 'BAD_DEBT' ? colors.error : s === 'EXPECTED' ? colors.info : colors.pendingColor;
 
   if (loading || !summary) {
     return (
@@ -123,6 +177,8 @@ const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigat
   }
 
   const loan = summary.loan;
+  const isActive = loan.status === 'ACTIVE';
+  const sColor = isActive ? colors.pendingColor : colors.success;
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background, paddingTop: insets.top }]}>
@@ -132,9 +188,9 @@ const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigat
           <Feather name="arrow-left" size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>{loan.partyName}</Text>
+          <Text style={[styles.title, { color: colors.textPrimary }]} numberOfLines={1}>{loan.provider}</Text>
           <Text style={[styles.subtitle, { color: colors.textMuted }]}>
-            {t(`finance.loanType.${loan.loanType}`)} · {isLent ? t('finance.lent') : t('finance.borrowed')}
+            {t(`finance.loanType.${loan.loanType}`)}
           </Text>
         </View>
         <TouchableOpacity onPress={() => navigation?.navigate('AddEditLoan', { loanId })} style={styles.backBtn}>
@@ -145,145 +201,155 @@ const LoanDetailScreen: React.FC<{ navigation?: any; route?: any }> = ({ navigat
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         {/* Outstanding hero + status */}
         <View style={[styles.hero, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-          <Text style={[styles.heroLabel, { color: colors.textMuted }]}>
-            {isLent ? t('finance.totalReceivable') : t('finance.totalPayable')}
-          </Text>
-          <Text style={[styles.heroValue, { color: isLent ? colors.inColor : colors.outColor }]}>
-            {formatCash(summary.totalOutstanding)}
-          </Text>
-          <TouchableOpacity
-            style={[styles.statusChip, { backgroundColor: `${statusColor(loan.status)}22` }]}
-            onPress={() => setStatusOpen(true)}
-          >
-            <Text style={[styles.statusChipText, { color: statusColor(loan.status) }]}>
-              {t(`finance.status.${loan.status}`)}
-            </Text>
-            <Feather name="chevron-down" size={13} color={statusColor(loan.status)} />
-          </TouchableOpacity>
-        </View>
-
-        {/* Breakdown */}
-        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-          <Row label={t('finance.principal')} value={formatCash(loan.principal)} colors={colors} />
-          <Row label={`${t('finance.interestRate')}`} value={`${loan.interestRate}% · ${t(`finance.interestType.${loan.interestType}`)}`} colors={colors} />
-          <Row label={t('finance.interestAccrued')} value={formatCash(summary.interestAccrued)} colors={colors} />
-          <Divider colors={colors} />
-          <Row label={isLent ? t('finance.principalReceived') : t('finance.principalPaid')} value={formatCash(summary.principalPaid)} colors={colors} />
-          <Row label={isLent ? t('finance.interestReceived') : t('finance.interestPaid')} value={formatCash(summary.interestPaid)} colors={colors} />
-          <Divider colors={colors} />
-          <Row label={t('finance.remainingPrincipal')} value={formatCash(summary.remainingPrincipal)} colors={colors} strong />
-          <Row label={t('finance.remainingInterest')} value={formatCash(summary.remainingInterest)} colors={colors} strong />
-          <Row label={t('finance.totalOutstanding')} value={formatCash(summary.totalOutstanding)} colors={colors} strong highlight={isLent ? colors.inColor : colors.outColor} />
-          <View style={styles.datesRow}>
-            <Text style={[styles.dateMeta, { color: colors.textMuted }]}>{t('finance.loanDate')}: {formatDate(loan.loanDate)}</Text>
-            {loan.dueDate ? <Text style={[styles.dateMeta, { color: colors.textMuted }]}>{t('finance.dueDate')}: {formatDate(loan.dueDate)}</Text> : null}
+          <Text style={[styles.heroLabel, { color: colors.textMuted }]}>{t('finance.outstanding')}</Text>
+          <Text style={[styles.heroValue, { color: colors.outColor }]}>{formatCash(summary.outstandingAmount)}</Text>
+          <View style={[styles.statusChip, { backgroundColor: `${sColor}22` }]}>
+            <Text style={[styles.statusChipText, { color: sColor }]}>{t(`finance.loanStatus.${loan.status}`)}</Text>
           </View>
         </View>
 
-        {/* Record payment */}
-        {!summary.isCleared && (
-          <TouchableOpacity style={[styles.payBtn, { backgroundColor: colors.primary }]} onPress={openPay} activeOpacity={0.85}>
-            <Feather name="plus-circle" size={18} color={colors.textInverse} />
-            <Text style={[styles.payBtnText, { color: colors.textInverse }]}>
-              {isLent ? t('finance.recordReceipt') : t('finance.recordPayment')}
-            </Text>
-          </TouchableOpacity>
-        )}
+        {/* Details */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+          <Row label={t('finance.loanAmount')} value={formatCash(loan.loanAmount)} colors={colors} />
+          <Row label={t('finance.outstanding')} value={formatCash(summary.outstandingAmount)} colors={colors} />
+          <Row label={t('finance.provider')} value={loan.provider} colors={colors} />
+          <Row label={t('finance.interestRate')} value={`${loan.interestRate}%`} colors={colors} />
+          <Divider colors={colors} />
+          <Row label={t('finance.emi')} value={formatCash(loan.monthlyEMI)} colors={colors} />
+          <Row label={t('finance.emiDateLabel')} value={String(loan.emiDate)} colors={colors} />
+          <Row label={t('finance.startDate')} value={formatDate(loan.startDate)} colors={colors} />
+          <Row label={t('finance.tenure')} value={`${loan.tenure} ${t('finance.months')}`} colors={colors} />
+          <Divider colors={colors} />
+          <Row label={t('finance.paidEmis')} value={`${loan.paidEMIs} / ${loan.totalEMIs}`} colors={colors} />
+          <Row label={t('finance.remainingEmis')} value={String(summary.remainingEMIs)} colors={colors} strong />
+          {summary.nextEmiDate ? (
+            <Row label={t('finance.nextEmi')} value={formatDate(summary.nextEmiDate)} colors={colors} strong />
+          ) : null}
+        </View>
 
-        {/* Payment history */}
-        <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('finance.paymentHistory')}</Text>
-        {payments.length === 0 ? (
-          <Text style={[styles.emptyText, { color: colors.textMuted }]}>{t('finance.noPayments')}</Text>
-        ) : (
-          payments
-            .slice()
-            .reverse()
-            .map(p => (
-              <View key={p.id} style={[styles.payRow, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.payRowTitle, { color: colors.textPrimary }]}>{formatDate(p.paymentDate)}</Text>
-                  {!!p.note && <Text style={[styles.payRowNote, { color: colors.textMuted }]}>{p.note}</Text>}
+        {/* Actions */}
+        <View style={styles.actionsGrid}>
+          <ActionButton icon="bell" label={t('finance.setEmiReminder')} onPress={handleEmiReminder} colors={colors} disabled={!isActive} />
+          <ActionButton icon="clock" label={t('finance.setDueDateReminder')} onPress={handleDueDateReminder} colors={colors} disabled={!isActive} />
+          {isActive ? (
+            <ActionButton icon="check-circle" label={t('finance.markClosed')} onPress={handleMarkClosed} colors={colors} />
+          ) : null}
+        </View>
+
+        {/* Close Loan Faster suggestions (active loans only) */}
+        {isActive && suggestions.length > 0 && (
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('finance.closeFaster')}</Text>
+            {suggestions.map(s => (
+              <View key={s.key} style={[styles.suggestionCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+                <View style={[styles.suggestionIcon, { backgroundColor: colors.primaryBg }]}>
+                  <Feather name="trending-down" size={16} color={colors.primary} />
                 </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  {p.principalPaid > 0 && (
-                    <Text style={[styles.payAmt, { color: colors.textSecondary }]}>
-                      {t('finance.paymentPrincipal')}: {formatCash(p.principalPaid)}
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.suggestionTitle, { color: colors.textPrimary }]}>
+                    {t(`finance.closure.${s.key}`)}
+                  </Text>
+                  <Text style={[styles.suggestionDesc, { color: colors.textMuted }]}>
+                    {t(`finance.closureDesc.${s.key}`)}
+                  </Text>
+                  {s.estimatedSaving != null && s.estimatedSaving > 0 ? (
+                    <Text style={[styles.suggestionSaving, { color: colors.success }]}>
+                      {t('finance.estSaving')}: {formatCash(s.estimatedSaving)}
+                      {s.monthsSaved != null && s.monthsSaved > 0
+                        ? ` · ${s.monthsSaved} ${t('finance.months')}`
+                        : ''}
                     </Text>
-                  )}
-                  {p.interestPaid > 0 && (
-                    <Text style={[styles.payAmt, { color: colors.textSecondary }]}>
-                      {t('finance.paymentInterest')}: {formatCash(p.interestPaid)}
-                    </Text>
-                  )}
+                  ) : null}
                 </View>
               </View>
-            ))
+            ))}
+          </View>
         )}
 
-        <View style={{ height: 100 }} />
+        {/* Gold Loan Comparison (gold loans only) */}
+        {loan.loanType === 'GOLD' && (
+          <View style={styles.section}>
+            <View style={styles.sectionHeaderRow}>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>{t('finance.goldComparison')}</Text>
+              <TouchableOpacity onPress={() => openGpEditor()} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Feather name="plus" size={18} color={colors.primary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={[styles.goldNote, { color: colors.textMuted }]}>{t('finance.goldComparisonNote')}</Text>
+
+            {goldProviders.length === 0 ? (
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>{t('finance.goldNoProviders')}</Text>
+            ) : (
+              goldProviders.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  activeOpacity={0.8}
+                  onPress={() => openGpEditor(p)}
+                  onLongPress={() => deleteGoldProvider(p)}
+                  style={[styles.goldCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                >
+                  <Text style={[styles.goldProvider, { color: colors.textPrimary }]}>{p.provider}</Text>
+                  <View style={styles.goldGrid}>
+                    <GoldStat label={t('finance.interestRate')} value={`${p.interestRate}%`} colors={colors} />
+                    <GoldStat label={t('finance.amountPerGram')} value={formatCash(p.amountPerGram)} colors={colors} />
+                    <GoldStat label={t('finance.ltv')} value={`${p.ltv}%`} colors={colors} />
+                    <GoldStat label={t('finance.processingFee')} value={String(p.processingFee)} colors={colors} />
+                  </View>
+                  {p.otherCharges ? (
+                    <Text style={[styles.goldOther, { color: colors.textMuted }]}>
+                      {t('finance.otherCharges')}: {p.otherCharges}
+                    </Text>
+                  ) : null}
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        )}
+
+        {loan.notes ? (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.borderLight, marginTop: 6 }]}>
+            <Text style={[styles.notesLabel, { color: colors.textMuted }]}>{t('finance.notes')}</Text>
+            <Text style={[styles.notesText, { color: colors.textPrimary }]}>{loan.notes}</Text>
+          </View>
+        ) : null}
+
+        <View style={{ height: insets.bottom + FLOATING_TAB_BAR_CLEARANCE }} />
       </ScrollView>
 
-      {/* Record payment modal */}
-      <Modal visible={payOpen} transparent animationType="fade" onRequestClose={() => setPayOpen(false)}>
+      {/* Gold provider editor modal */}
+      <Modal visible={gpOpen} transparent animationType="fade" onRequestClose={() => setGpOpen(false)}>
         <View style={[styles.modalOverlay, { backgroundColor: colors.overlay }]}>
           <View style={[styles.modalSheet, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-              {isLent ? t('finance.recordReceipt') : t('finance.recordPayment')}
-            </Text>
-            <Text style={[styles.modalSub, { color: colors.textMuted }]}>{loan.partyName}</Text>
-
-            {summary.remainingPrincipal > 0 && (
-              <>
-                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
-                  {t('finance.paymentPrincipal')} ({t('finance.remainingPrincipal')}: {formatCash(summary.remainingPrincipal)})
-                </Text>
-                <TextInput style={[styles.input, { borderColor: colors.border, color: colors.textPrimary }]} value={payPrincipal} onChangeText={setPayPrincipal} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.textDisabled} />
-              </>
-            )}
-            {summary.remainingInterest > 0 && (
-              <>
-                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
-                  {t('finance.paymentInterest')} ({t('finance.remainingInterest')}: {formatCash(summary.remainingInterest)})
-                </Text>
-                <TextInput style={[styles.input, { borderColor: colors.border, color: colors.textPrimary }]} value={payInterest} onChangeText={setPayInterest} keyboardType="decimal-pad" placeholder="0" placeholderTextColor={colors.textDisabled} />
-              </>
-            )}
-
+            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>{t('finance.goldProviderTitle')}</Text>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <GpInput label={t('finance.provider')} value={gpName} onChangeText={setGpName} colors={colors} autoCapitalize="words" />
+              <GpInput label={t('finance.interestRate')} value={gpRate} onChangeText={setGpRate} colors={colors} keyboardType="decimal-pad" />
+              <GpInput label={t('finance.amountPerGram')} value={gpPerGram} onChangeText={setGpPerGram} colors={colors} keyboardType="decimal-pad" />
+              <GpInput label={t('finance.ltv')} value={gpLtv} onChangeText={setGpLtv} colors={colors} keyboardType="decimal-pad" />
+              <GpInput label={t('finance.processingFee')} value={gpFee} onChangeText={setGpFee} colors={colors} keyboardType="decimal-pad" />
+              <GpInput label={t('finance.otherCharges')} value={gpOther} onChangeText={setGpOther} colors={colors} />
+            </ScrollView>
             <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalCancel, { borderColor: colors.border }]} onPress={() => setPayOpen(false)}>
+              <TouchableOpacity style={[styles.modalCancel, { borderColor: colors.border }]} onPress={() => setGpOpen(false)}>
                 <Text style={{ color: colors.textMuted }}>{t('common.cancel')}</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: colors.primary }]} onPress={confirmPay} disabled={saving}>
+              <TouchableOpacity style={[styles.modalConfirm, { backgroundColor: colors.primary }]} onPress={saveGoldProvider} disabled={gpSaving}>
                 <Text style={{ color: colors.textInverse, fontWeight: '700' }}>{t('common.save')}</Text>
               </TouchableOpacity>
             </View>
           </View>
         </View>
       </Modal>
-
-      {/* Status change sheet */}
-      <Modal visible={statusOpen} transparent animationType="fade" onRequestClose={() => setStatusOpen(false)}>
-        <TouchableOpacity style={[styles.modalOverlay, { backgroundColor: colors.overlay }]} activeOpacity={1} onPress={() => setStatusOpen(false)}>
-          <View style={[styles.statusSheet, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.textPrimary, marginBottom: 8 }]}>{t('finance.changeStatus')}</Text>
-            {LOAN_STATUSES.map(s => (
-              <TouchableOpacity key={s} style={styles.statusOption} onPress={() => changeStatus(s)}>
-                <View style={[styles.statusDot, { backgroundColor: statusColor(s) }]} />
-                <Text style={[styles.statusOptionText, { color: colors.textPrimary }]}>{t(`finance.status.${s}`)}</Text>
-                {loan.status === s ? <Feather name="check" size={16} color={colors.primary} /> : null}
-              </TouchableOpacity>
-            ))}
-          </View>
-        </TouchableOpacity>
-      </Modal>
     </View>
   );
 };
 
-const Row: React.FC<{ label: string; value: string; colors: ThemeColors; strong?: boolean; highlight?: string }> = ({ label, value, colors, strong, highlight }) => (
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+const Row: React.FC<{ label: string; value: string; colors: ThemeColors; strong?: boolean }> = ({ label, value, colors, strong }) => (
   <View style={rowStyles.row}>
     <Text style={[rowStyles.label, { color: colors.textMuted }]}>{label}</Text>
-    <Text style={[rowStyles.value, { color: highlight ?? colors.textPrimary, fontWeight: strong ? '800' : '600' }]}>{value}</Text>
+    <Text style={[rowStyles.value, { color: colors.textPrimary, fontWeight: strong ? '800' : '600' }]}>{value}</Text>
   </View>
 );
 
@@ -291,51 +357,102 @@ const Divider: React.FC<{ colors: ThemeColors }> = ({ colors }) => (
   <View style={[rowStyles.divider, { backgroundColor: colors.borderLight }]} />
 );
 
+const ActionButton: React.FC<{ icon: any; label: string; onPress: () => void; colors: ThemeColors; disabled?: boolean }> = ({ icon, label, onPress, colors, disabled }) => (
+  <TouchableOpacity
+    style={[actionStyles.btn, { backgroundColor: colors.surface, borderColor: colors.borderLight, opacity: disabled ? 0.5 : 1 }]}
+    onPress={onPress}
+    disabled={disabled}
+    activeOpacity={0.8}
+  >
+    <Feather name={icon} size={18} color={colors.primary} />
+    <Text style={[actionStyles.label, { color: colors.textPrimary }]}>{label}</Text>
+  </TouchableOpacity>
+);
+
+const GoldStat: React.FC<{ label: string; value: string; colors: ThemeColors }> = ({ label, value, colors }) => (
+  <View style={goldStyles.stat}>
+    <Text style={[goldStyles.statLabel, { color: colors.textMuted }]}>{label}</Text>
+    <Text style={[goldStyles.statValue, { color: colors.textPrimary }]}>{value}</Text>
+  </View>
+);
+
+const GpInput: React.FC<any> = ({ label, colors, ...rest }) => (
+  <View style={{ marginBottom: 10 }}>
+    <Text style={[{ fontSize: 12, fontWeight: '600', marginBottom: 6 }, { color: colors.textSecondary }]}>{label}</Text>
+    <TextInput
+      style={[{ height: 44, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, fontSize: 14 }, { borderColor: colors.border, color: colors.textPrimary }]}
+      placeholderTextColor={colors.textDisabled}
+      {...rest}
+    />
+  </View>
+);
+
 const rowStyles = StyleSheet.create({
-  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6 },
-  label: { fontSize: 13 },
-  value: { fontSize: 14 },
-  divider: { height: 1, marginVertical: 8 },
+  row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 7 },
+  label: { fontSize: 13, fontWeight: '500', flex: 1 },
+  value: { fontSize: 13, textAlign: 'right', flex: 1 },
+  divider: { height: 1, marginVertical: 6 },
+});
+
+const actionStyles = StyleSheet.create({
+  btn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    flexGrow: 1,
+    flexBasis: '47%',
+  },
+  label: { fontSize: 13, fontWeight: '700' },
+});
+
+const goldStyles = StyleSheet.create({
+  stat: { width: '48%', marginBottom: 8 },
+  statLabel: { fontSize: 11, fontWeight: '500' },
+  statValue: { fontSize: 14, fontWeight: '700', marginTop: 1 },
 });
 
 const createStyles = (colors: ThemeColors) =>
   StyleSheet.create({
     container: { flex: 1 },
+    center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     header: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 16, paddingVertical: 12 },
     backBtn: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
     title: { fontSize: 18, fontWeight: '800' },
     subtitle: { fontSize: 12, marginTop: 1 },
-    center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
     content: { paddingHorizontal: 16, paddingTop: 4 },
     hero: { borderRadius: 16, borderWidth: 1, padding: 18, alignItems: 'center', marginBottom: 12 },
     heroLabel: { fontSize: 12, fontWeight: '600' },
-    heroValue: { fontSize: 30, fontWeight: '800', marginTop: 4 },
-    statusChip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: 12, paddingHorizontal: 12, paddingVertical: 5, marginTop: 12 },
+    heroValue: { fontSize: 28, fontWeight: '800', marginTop: 4 },
+    statusChip: { marginTop: 10, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 5 },
     statusChipText: { fontSize: 12, fontWeight: '800' },
-    card: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 14 },
-    datesRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 12 },
-    dateMeta: { fontSize: 11, fontWeight: '500' },
-    payBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 18 },
-    payBtnText: { fontSize: 14, fontWeight: '700' },
-    sectionTitle: { fontSize: 14, fontWeight: '800', marginBottom: 8 },
-    emptyText: { fontSize: 13, paddingVertical: 12 },
-    payRow: { flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, padding: 12, marginBottom: 8 },
-    payRowTitle: { fontSize: 13, fontWeight: '700' },
-    payRowNote: { fontSize: 12, marginTop: 2 },
-    payAmt: { fontSize: 12, fontWeight: '600' },
-    modalOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-    modalSheet: { width: '100%', borderRadius: 18, padding: 20 },
-    modalTitle: { fontSize: 16, fontWeight: '800' },
-    modalSub: { fontSize: 12, marginTop: 2, marginBottom: 12 },
-    inputLabel: { fontSize: 12, fontWeight: '600', marginTop: 8, marginBottom: 4 },
-    input: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontSize: 15 },
-    modalActions: { flexDirection: 'row', gap: 10, marginTop: 18 },
-    modalCancel: { flex: 1, paddingVertical: 11, borderRadius: 10, alignItems: 'center', borderWidth: 1 },
-    modalConfirm: { flex: 2, paddingVertical: 11, borderRadius: 10, alignItems: 'center' },
-    statusSheet: { width: '100%', borderRadius: 18, padding: 16 },
-    statusOption: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12 },
-    statusDot: { width: 10, height: 10, borderRadius: 5 },
-    statusOptionText: { fontSize: 14, fontWeight: '600', flex: 1 },
+    card: { borderRadius: 14, borderWidth: 1, padding: 16, marginBottom: 12 },
+    actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 4 },
+    section: { marginTop: 10 },
+    sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    sectionTitle: { fontSize: 15, fontWeight: '800', marginBottom: 8 },
+    suggestionCard: { flexDirection: 'row', gap: 12, borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 10 },
+    suggestionIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+    suggestionTitle: { fontSize: 14, fontWeight: '700' },
+    suggestionDesc: { fontSize: 12, marginTop: 2, lineHeight: 17 },
+    suggestionSaving: { fontSize: 12, fontWeight: '700', marginTop: 6 },
+    goldNote: { fontSize: 11, marginBottom: 10, lineHeight: 16 },
+    goldCard: { borderRadius: 12, borderWidth: 1, padding: 14, marginBottom: 10 },
+    goldProvider: { fontSize: 15, fontWeight: '700', marginBottom: 10 },
+    goldGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
+    goldOther: { fontSize: 12, marginTop: 4 },
+    emptyText: { fontSize: 13, textAlign: 'center', paddingVertical: 20 },
+    notesLabel: { fontSize: 12, fontWeight: '600' },
+    notesText: { fontSize: 14, marginTop: 6, lineHeight: 20 },
+    modalOverlay: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+    modalSheet: { width: '100%', maxHeight: '82%', borderRadius: 18, padding: 20 },
+    modalTitle: { fontSize: 17, fontWeight: '800', marginBottom: 14 },
+    modalActions: { flexDirection: 'row', gap: 12, marginTop: 12 },
+    modalCancel: { flex: 1, height: 46, borderRadius: 12, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+    modalConfirm: { flex: 1, height: 46, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
   });
 
 export default LoanDetailScreen;

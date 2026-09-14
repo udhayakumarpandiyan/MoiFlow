@@ -39,3 +39,11 @@ export const Radii = {
   xxl: 24,
   full: 999,
 } as const;
+
+/**
+ * Vertical space (in px, ON TOP of the safe-area bottom inset) that a screen's
+ * bottom-pinned content must reserve so it clears the floating bottom tab bar
+ * (see FloatingTabBar). The bar's pill is ~64px tall plus its own top gap.
+ * Screens with a sticky footer add this to `insets.bottom`.
+ */
+export const FLOATING_TAB_BAR_CLEARANCE = 78;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 
 type LogoSize = 'small' | 'medium' | 'large';
 type LogoVariant = 'icon-only' | 'full' | 'header';
@@ -28,14 +28,14 @@ const MoiflowLogo: React.FC<MoiflowLogoProps> = ({
 
   if (variant === 'header') {
     // Full MoiFlow wordmark logo for the navigation header.
+    // marginLeft compensates for the transparent left-padding baked into the
+    // PNG asset so the visual edge of the artwork aligns with the header gutter.
     return (
-      <View style={styles.headerContainer}>
-        <Image
-          source={require('../assets/logo/moiflow-logo-temp.png')}
-          style={styles.headerLogo}
-          resizeMode="contain"
-        />
-      </View>
+      <Image
+        source={require('../assets/logo/moiflow-logo-temp.png')}
+        style={styles.headerLogo}
+        resizeMode="contain"
+      />
     );
   }
 
@@ -68,10 +68,6 @@ const MoiflowLogo: React.FC<MoiflowLogoProps> = ({
 export default MoiflowLogo;
 
 const styles = StyleSheet.create({
-  headerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
   headerLogo: {
     width: 168,
     height: 42,

@@ -333,6 +333,9 @@ const createStyles = (colors: ThemeColors) =>
       borderTopLeftRadius: 24,
       borderTopRightRadius: 24,
       paddingTop: 20,
+      // Column layout: header (fixed) + scroll (flexible) + footer (fixed).
+      flexDirection: 'column',
+      overflow: 'hidden',
     },
     header: {
       flexDirection: 'row',
@@ -350,7 +353,8 @@ const createStyles = (colors: ThemeColors) =>
     },
     loadingBox: { paddingVertical: 60, alignItems: 'center' },
     loadingText: { marginTop: 12, fontSize: 13, color: colors.textMuted },
-    scroll: { paddingHorizontal: 20 },
+    // flexShrink lets the scroll area yield space so the sticky footer stays visible.
+    scroll: { flexGrow: 0, flexShrink: 1, paddingHorizontal: 20 },
     scrollContent: { paddingBottom: 16 },
     emptyBox: { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 20 },
     emptyIcon: { fontSize: 40, marginBottom: 10 },
@@ -398,6 +402,7 @@ const createStyles = (colors: ThemeColors) =>
     },
     addRowText: { fontSize: 13, fontWeight: '600', color: colors.primary },
     footer: {
+      flexShrink: 0,
       paddingHorizontal: 20, paddingTop: 12, paddingBottom: 24,
       borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.borderLight,
     },

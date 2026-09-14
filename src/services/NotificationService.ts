@@ -177,6 +177,38 @@ class NotificationService {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Loan EMI reminders
+  //
+  // Loans reuse the same one-time trigger mechanism as events. Ids are
+  // namespaced (`loan-emi-<id>` / `loan-due-<id>`) so they never collide with
+  // event or pending reminders. LoanService calls these lazily.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Schedule (or reschedule) a one-time loan reminder.
+   *
+   * @param reminderId  Namespaced id, e.g. `loan-emi-<loanId>`.
+   * @param title       Notification title.
+   * @param notifyAtISO ISO datetime. Null/past cancels any existing reminder.
+   * @param body        Optional body text.
+   * @returns true if a notification was scheduled.
+   */
+  async scheduleLoanReminder(
+    reminderId: string,
+    title: string,
+    notifyAtISO: string | null | undefined,
+    body?: string,
+  ): Promise<boolean> {
+    // Delegates to the shared one-time reminder scheduler.
+    return this.scheduleEventNotification(reminderId, title, notifyAtISO, body);
+  }
+
+  /** Cancel a single loan reminder by its namespaced id. */
+  async cancelLoanReminder(reminderId: string): Promise<void> {
+    await this.cancelEventNotification(reminderId);
+  }
+
   /**
    * Request notification permission (needed on Android 13+ / iOS).
    */

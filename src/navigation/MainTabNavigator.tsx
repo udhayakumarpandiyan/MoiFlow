@@ -28,8 +28,6 @@ const MainTabNavigator = () => {
 
   const handleSignOut = useCallback(async () => {
     await authService.signOut();
-
-    // Always navigate to PinLock (MPIN is the only lock method)
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
@@ -40,22 +38,29 @@ const MainTabNavigator = () => {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Persistent header — rendered ONCE above the navigator, so it never
-          animates or shifts when the active tab changes. Only the body (the
-          Tab.Navigator scenes) transitions.
+      {/*
+        Persistent header — rendered ONCE above the tab navigator.
 
-          Top row: app logo + header actions (notifications, profile).
-          Welcome row: shared greeting + user name (common to both flows).
-          Mode row: the Moi ⇄ Finance mode switch. */}
-      <View style={[styles.headerWrap, { paddingTop: insets.top + 20, backgroundColor: colors.background }]}>
+        Row 1: App logo (left)  ·  Notifications + Profile (right)
+        Row 2: Welcome + username (left)  ·  Moi | Finance toggle (right)
+      */}
+      <View
+        style={[
+          styles.headerWrap,
+          { paddingTop: insets.top + 16, backgroundColor: colors.background },
+        ]}
+      >
+        {/* Row 1 */}
         <View style={styles.headerTop}>
           <MoiflowLogo color={colors.textPrimary} size="medium" variant="header" />
           <ProfileMenu onSignOut={handleSignOut} />
         </View>
-        <View style={styles.headerWelcome}>
-          <DashboardWelcome />
-        </View>
+
+        {/* Row 2 */}
         <View style={styles.headerBottom}>
+          <View style={styles.welcomeWrap}>
+            <DashboardWelcome />
+          </View>
           <ModeSwitch current="moi" />
         </View>
       </View>
@@ -66,38 +71,16 @@ const MainTabNavigator = () => {
           initialRouteName="DashboardStack"
           tabBar={props => <FloatingTabBar {...props} />}
           screenOptions={{
-            // Header is now the persistent one above; disable the per-scene header.
             headerShown: false,
-            // Crossfade only the body content on tab change.
             animation: 'fade',
             sceneStyle: { backgroundColor: colors.background },
           }}
         >
-          <Tab.Screen
-            name="DashboardStack"
-            component={DashboardStack}
-            options={{ title: t('nav.dashboard') }}
-          />
-          <Tab.Screen
-            name="EntriesStack"
-            component={EntriesStack}
-            options={{ title: t('nav.entries') }}
-          />
-          <Tab.Screen
-            name="EventsStack"
-            component={EventsStack}
-            options={{ title: t('nav.events') }}
-          />
-          <Tab.Screen
-            name="ReportsStack"
-            component={ReportsStack}
-            options={{ title: t('nav.reports') }}
-          />
-          <Tab.Screen
-            name="SettingsStack"
-            component={SettingsStack}
-            options={{ title: t('nav.settings') }}
-          />
+          <Tab.Screen name="DashboardStack"  component={DashboardStack}  options={{ title: t('nav.dashboard') }} />
+          <Tab.Screen name="EntriesStack"    component={EntriesStack}    options={{ title: t('nav.entries') }} />
+          <Tab.Screen name="EventsStack"     component={EventsStack}     options={{ title: t('nav.events') }} />
+          <Tab.Screen name="ReportsStack"    component={ReportsStack}    options={{ title: t('nav.reports') }} />
+          <Tab.Screen name="SettingsStack"   component={SettingsStack}   options={{ title: t('nav.settings') }} />
         </Tab.Navigator>
       </View>
     </View>
@@ -105,30 +88,39 @@ const MainTabNavigator = () => {
 };
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-  },
+  root: { flex: 1 },
+
   headerWrap: {
-    paddingBottom: 6,
+    paddingBottom: 10,
+    // No horizontal padding here — each row controls its own insets so the
+    // logo in Row 1 can sit flush-left while Row 2 content stays inset at 16.
   },
+
+  /* Row 1: logo (flush-left) | profile cluster (flush-right) */
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    // ProfileMenu has its own marginRight: 12; cancel it so the icons land
+    // at the same right edge as the Row 2 content.
+    paddingRight: 4,
   },
-  headerWelcome: {
-    paddingHorizontal: 4,
-    paddingTop: 12,
-  },
+
+  /* Row 2: welcome text (flex:1) | mode switch — inset to match body content */
   headerBottom: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    marginTop: 12,
   },
-  body: {
+
+  welcomeWrap: {
     flex: 1,
+    marginRight: 12,
   },
+
+  body: { flex: 1 },
 });
 
 export default MainTabNavigator;

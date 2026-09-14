@@ -23,7 +23,6 @@ const Tab = createBottomTabNavigator();
 
 type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
-/** Finance-specific tab icons. */
 const FINANCE_ICON_MAP: Record<string, FeatherIconName> = {
   FinanceDashboardStack: 'grid',
   LoansStack: 'dollar-sign',
@@ -32,11 +31,6 @@ const FINANCE_ICON_MAP: Record<string, FeatherIconName> = {
   FinanceReportsStack: 'bar-chart-2',
 };
 
-/**
- * Finance mode — a parallel tab navigator to MainTabNavigator. It reuses the
- * shared header pattern (mode switch + profile), FloatingTabBar, theme and
- * auth. Completely independent of the Moi tabs.
- */
 const FinanceTabNavigator = () => {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
@@ -52,19 +46,29 @@ const FinanceTabNavigator = () => {
 
   return (
     <View style={[styles.root, { backgroundColor: colors.background }]}>
-      {/* Persistent header.
-          Top row: app logo + header actions (notifications, profile).
-          Welcome row: shared greeting + user name (common to both flows).
-          Mode row: the Moi ⇄ Finance mode switch. */}
-      <View style={[styles.headerWrap, { paddingTop: insets.top + 20, backgroundColor: colors.background }]}>
+      {/*
+        Persistent header — rendered ONCE above the tab navigator.
+
+        Row 1: App logo (left)  ·  Notifications + Profile (right)
+        Row 2: Welcome + username (left)  ·  Moi | Finance toggle (right)
+      */}
+      <View
+        style={[
+          styles.headerWrap,
+          { paddingTop: insets.top + 16, backgroundColor: colors.background },
+        ]}
+      >
+        {/* Row 1 */}
         <View style={styles.headerTop}>
           <MoiflowLogo color={colors.textPrimary} size="medium" variant="header" />
           <ProfileMenu onSignOut={handleSignOut} />
         </View>
-        <View style={styles.headerWelcome}>
-          <DashboardWelcome />
-        </View>
+
+        {/* Row 2 */}
         <View style={styles.headerBottom}>
+          <View style={styles.welcomeWrap}>
+            <DashboardWelcome />
+          </View>
           <ModeSwitch current="finance" />
         </View>
       </View>
@@ -83,10 +87,10 @@ const FinanceTabNavigator = () => {
           }}
         >
           <Tab.Screen name="FinanceDashboardStack" component={FinanceDashboardStack} options={{ title: t('nav.dashboard') }} />
-          <Tab.Screen name="LoansStack" component={LoansStack} options={{ title: t('nav.loans') }} />
-          <Tab.Screen name="CreditsStack" component={CreditsStack} options={{ title: t('nav.credits') }} />
-          <Tab.Screen name="BusinessStack" component={BusinessStack} options={{ title: t('nav.business') }} />
-          <Tab.Screen name="FinanceReportsStack" component={FinanceReportsStack} options={{ title: t('nav.reports') }} />
+          <Tab.Screen name="LoansStack"            component={LoansStack}            options={{ title: t('nav.loans') }} />
+          <Tab.Screen name="CreditsStack"          component={CreditsStack}          options={{ title: t('nav.credits') }} />
+          <Tab.Screen name="BusinessStack"         component={BusinessStack}         options={{ title: t('nav.business') }} />
+          <Tab.Screen name="FinanceReportsStack"   component={FinanceReportsStack}   options={{ title: t('nav.reports') }} />
         </Tab.Navigator>
       </View>
     </View>
@@ -95,24 +99,33 @@ const FinanceTabNavigator = () => {
 
 const styles = StyleSheet.create({
   root: { flex: 1 },
+
   headerWrap: {
-    paddingBottom: 6,
+    paddingBottom: 10,
   },
+
+  /* Row 1: logo (flush-left) | profile cluster (flush-right) */
   headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingRight: 4,
   },
-  headerWelcome: {
-    paddingHorizontal: 4,
-    paddingTop: 12,
-  },
+
+  /* Row 2: welcome text (flex:1) | mode switch — inset to match body content */
   headerBottom: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingTop: 10,
+    marginTop: 12,
   },
+
+  welcomeWrap: {
+    flex: 1,
+    marginRight: 12,
+  },
+
   body: { flex: 1 },
 });
 
