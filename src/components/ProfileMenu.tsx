@@ -37,8 +37,8 @@ const HeaderActions: React.FC<HeaderActionsProps> = ({ onSignOut }) => {
   const pillBg = colors.primaryBg;
 
   const toggleTheme = () => {
-    // Flip between explicit light/dark (takes it off system-follow), persisted.
-    setTheme(isDark ? 'light' : 'dark');
+    // Dark → restore default (system-follow). Light/default → explicit dark.
+    setTheme(isDark ? 'default' : 'dark');
   };
 
   const openSettings = () => {

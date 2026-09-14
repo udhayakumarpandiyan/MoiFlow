@@ -101,6 +101,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingLeft: 16,
     // ProfileMenu has its own marginRight: 12; cancel it so the icons land
     // at the same right edge as the Row 2 content.
     paddingRight: 4,

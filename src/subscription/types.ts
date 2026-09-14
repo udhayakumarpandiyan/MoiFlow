@@ -41,7 +41,9 @@ export interface EntitlementState {
 
 /** The default, non-premium state. */
 export const FREE_ENTITLEMENT: EntitlementState = {
-  isPremium: false,
+  // TODO(testing): isPremium forced to true so all features are accessible.
+  // Restore to `false` before production release.
+  isPremium: true,
   planId: null,
   productId: null,
   expiryAt: null,

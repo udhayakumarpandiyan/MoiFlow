@@ -4,7 +4,7 @@
 const en = {
   app: {
     name: 'MoiFlow',
-    tagline: 'Your Event Ledger',
+    tagline: 'Your Moi & Finance Manager',
     loading: 'Loading...',
   },
 

@@ -138,12 +138,15 @@ export class EntitlementService {
     return this.computeIsPremium(this.state);
   }
 
-  private computeIsPremium(state: EntitlementState): boolean {
-    if (!state.isPremium) return false;
-    if (!state.expiryAt) return true; // premium, expiry unknown → allow
-    const expiry = Date.parse(state.expiryAt);
-    if (Number.isNaN(expiry)) return true; // unparseable → don't punish user
-    return expiry > Date.now();
+  private computeIsPremium(_state: EntitlementState): boolean {
+    // TODO(testing): Premium gate bypassed — all users treated as premium.
+    // Restore original logic before production release:
+    // if (!state.isPremium) return false;
+    // if (!state.expiryAt) return true; // premium, expiry unknown → allow
+    // const expiry = Date.parse(state.expiryAt);
+    // if (Number.isNaN(expiry)) return true; // unparseable → don't punish user
+    // return expiry > Date.now();
+    return true;
   }
 
   /**
@@ -155,10 +158,12 @@ export class EntitlementService {
   }
 
   /** Throw PremiumRequiredError if the feature is not available. */
-  assertFeature(feature: PremiumFeature): void {
-    if (!this.canUseFeature(feature)) {
-      throw new PremiumRequiredError(feature);
-    }
+  assertFeature(_feature: PremiumFeature): void {
+    // TODO(testing): Premium gate bypassed — assertion skipped.
+    // Restore original logic before production release:
+    // if (!this.canUseFeature(feature)) {
+    //   throw new PremiumRequiredError(feature);
+    // }
   }
 
   // -------------------------------------------------------------------------
@@ -170,26 +175,30 @@ export class EntitlementService {
    * Free users are capped at FREE_LIMITS.maxEvents.
    */
   async assertCanCreateEvent(): Promise<void> {
-    if (this.isPremium()) return;
-    const events = await this.eventRepo.getAll();
-    if (events.length >= FREE_LIMITS.maxEvents) {
-      throw new FreeLimitError(LimitKind.Events, FREE_LIMITS.maxEvents);
-    }
+    // TODO(testing): Free-limit enforcement bypassed — unlimited events allowed.
+    // Restore original logic before production release:
+    // if (this.isPremium()) return;
+    // const events = await this.eventRepo.getAll();
+    // if (events.length >= FREE_LIMITS.maxEvents) {
+    //   throw new FreeLimitError(LimitKind.Events, FREE_LIMITS.maxEvents);
+    // }
   }
 
   /**
    * Assert the user may add another entry to the given event. Premium users are
    * unlimited. Free users are capped at FREE_LIMITS.maxEntriesPerEvent.
    */
-  async assertCanAddEntry(eventId: string): Promise<void> {
-    if (this.isPremium()) return;
-    const entries = await this.entryRepo.getAll({ eventId });
-    if (entries.length >= FREE_LIMITS.maxEntriesPerEvent) {
-      throw new FreeLimitError(
-        LimitKind.EntriesPerEvent,
-        FREE_LIMITS.maxEntriesPerEvent,
-      );
-    }
+  async assertCanAddEntry(_eventId: string): Promise<void> {
+    // TODO(testing): Free-limit enforcement bypassed — unlimited entries allowed.
+    // Restore original logic before production release:
+    // if (this.isPremium()) return;
+    // const entries = await this.entryRepo.getAll({ eventId });
+    // if (entries.length >= FREE_LIMITS.maxEntriesPerEvent) {
+    //   throw new FreeLimitError(
+    //     LimitKind.EntriesPerEvent,
+    //     FREE_LIMITS.maxEntriesPerEvent,
+    //   );
+    // }
   }
 
   /**
@@ -200,11 +209,13 @@ export class EntitlementService {
    * reference existing people should not call this.
    */
   async assertCanAddPerson(): Promise<void> {
-    if (this.isPremium()) return;
-    const people = await this.personRepo.getAll();
-    if (people.length >= FREE_LIMITS.maxPeople) {
-      throw new FreeLimitError(LimitKind.People, FREE_LIMITS.maxPeople);
-    }
+    // TODO(testing): Free-limit enforcement bypassed — unlimited people allowed.
+    // Restore original logic before production release:
+    // if (this.isPremium()) return;
+    // const people = await this.personRepo.getAll();
+    // if (people.length >= FREE_LIMITS.maxPeople) {
+    //   throw new FreeLimitError(LimitKind.People, FREE_LIMITS.maxPeople);
+    // }
   }
 
   // -------------------------------------------------------------------------

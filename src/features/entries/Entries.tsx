@@ -172,7 +172,7 @@ const EntriesScreen = () => {
    * ------------------------------------------------------------------------ */
 
   const [direction, setDirection] =
-    useState<EntryDirection>('IN');
+    useState<EntryDirection>(route.params?.initialDirection ?? 'IN');
 
   /* --------------------------------------------------------------------------
    * IN event selector
@@ -357,10 +357,19 @@ const EntriesScreen = () => {
       if (paramSearch && typeof paramSearch === 'string') {
         setSearchQuery(paramSearch);
       }
+
+      // Apply initial direction tab from navigation params on every focus so
+      // navigating from Dashboard always lands on the right tab even when the
+      // screen is already mounted in the tab navigator.
+      const paramDirection = route.params?.initialDirection;
+      if (paramDirection) {
+        setDirection(paramDirection as EntryDirection);
+      }
     }, [
       loadEntries,
       loadOwnEvents,
       route.params?.searchQuery,
+      route.params?.initialDirection,
     ]),
   );
 

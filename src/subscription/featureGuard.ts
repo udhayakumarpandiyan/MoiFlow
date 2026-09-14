@@ -29,15 +29,20 @@ function resolveEntitlement():
  * If the entitlement service cannot be resolved (e.g. in an isolated unit test
  * without the container), this is a no-op so it never blocks unexpectedly.
  */
-export function assertPremiumFeature(feature: PremiumFeature): void {
-  const ent = resolveEntitlement();
-  if (!ent) return;
-  ent.assertFeature(feature);
+export function assertPremiumFeature(_feature: PremiumFeature): void {
+  // TODO(testing): Premium gate bypassed — all features allowed.
+  // Restore original logic before production release:
+  // const ent = resolveEntitlement();
+  // if (!ent) return;
+  // ent.assertFeature(feature);
 }
 
 /** Non-throwing check for the given feature. */
 export function hasPremiumFeature(_feature: PremiumFeature): boolean {
-  const ent = resolveEntitlement();
-  if (!ent) return true; // fail-open only when entitlement is unknowable
-  return ent.isPremium();
+  // TODO(testing): Premium gate bypassed — always returns true.
+  // Restore original logic before production release:
+  // const ent = resolveEntitlement();
+  // if (!ent) return true; // fail-open only when entitlement is unknowable
+  // return ent.isPremium();
+  return true;
 }

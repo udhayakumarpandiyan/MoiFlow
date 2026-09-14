@@ -65,11 +65,17 @@ interface Props {
       params?: Record<string, unknown>,
     ) => void;
   };
+  route?: {
+    params?: {
+      initialTab?: string;
+      initialFilter?: string;
+    };
+  };
 }
 
 type EventFilter = 'UPCOMING' | 'PAST';
 
-const EventsScreen: React.FC<Props> = ({ navigation }) => {
+const EventsScreen: React.FC<Props> = ({ navigation, route }) => {
   const { colors } = useTheme();
   const { t } = useTranslation();
   const { isPremium, ensurePremium } = usePremiumGate();
@@ -92,8 +98,8 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
   type EventFinance = { cashIn: number; cashOut: number; goldIn: number; goldOut: number };
   const [financeByEvent, setFinanceByEvent] = useState<Record<string, EventFinance>>({});
 
-  const [tab, setTab] = useState<string>('MY_EVENT');
-  const [eventFilter, setEventFilter] = useState<EventFilter>('UPCOMING');
+  const [tab, setTab] = useState<string>(route.params?.initialTab ?? 'MY_EVENT');
+  const [eventFilter, setEventFilter] = useState<EventFilter>(route.params?.initialFilter ?? 'UPCOMING');
 
   const [search, setSearch] = useState('');
 
@@ -166,6 +172,17 @@ const EventsScreen: React.FC<Props> = ({ navigation }) => {
     useCallback(() => {
       loadEvents();
     }, [loadEvents]),
+  );
+
+  // Apply navigation params every time the screen gains focus so that
+  // navigating here from another screen (e.g. Dashboard "Past" button) always
+  // lands on the right tab/filter, even when the screen was already mounted.
+  useFocusEffect(
+    useCallback(() => {
+      const { initialTab, initialFilter } = route.params ?? {};
+      if (initialTab) setTab(initialTab);
+      if (initialFilter) setEventFilter(initialFilter as EventFilter);
+    }, [route.params]),
   );
 
   const today = useMemo(() => {

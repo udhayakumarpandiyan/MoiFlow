@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
-  LayoutChangeEvent,
   Pressable,
   StyleSheet,
   View,
@@ -11,7 +10,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAppTranslation } from '../hooks/useAppTranslation';
 
 const BLUE        = '#3B82F6';
-const TRACK_BG    = '#d7d9dd';
+const TRACK_BG    = '#e8e8eb';
 const ACTIVE_FG   = '#FFFFFF';
 const INACTIVE_FG = '#3c3f43';
 
@@ -44,19 +43,6 @@ export const ModeSwitch: React.FC<ModeSwitchProps> = ({ current }) => {
     }).start();
   }, [current, slotWidth, progress]);
 
-  const onLayout = useCallback(
-    (e: LayoutChangeEvent) => {
-      const total = e.nativeEvent.layout.width;
-      // Track has padding: 3 on all sides, so inner width = total - 6 (left+right).
-      // Two equal slots each take half of that.
-      const slot = (total - 6) / 2;
-      setSlotWidth(slot);
-      // Snap without animation on first measure
-      progress.setValue(current === 'finance' ? 1 : 0);
-    },
-    [current, progress],
-  );
-
   const go = (mode: AppMode) => {
     if (mode === current) return;
     Animated.timing(progress, {
@@ -84,7 +70,7 @@ export const ModeSwitch: React.FC<ModeSwitchProps> = ({ current }) => {
   });
 
   return (
-    <View style={styles.track} onLayout={onLayout}>
+    <View style={styles.track}>
       {/* Sliding thumb */}
       {slotWidth > 0 && thumbX !== undefined && (
         <Animated.View
@@ -100,6 +86,13 @@ export const ModeSwitch: React.FC<ModeSwitchProps> = ({ current }) => {
       <Pressable
         style={styles.slot}
         onPress={() => go('moi')}
+        onLayout={e => {
+          const w = e.nativeEvent.layout.width;
+          if (w > 0 && w !== slotWidth) {
+            setSlotWidth(w);
+            progress.setValue(current === 'finance' ? 1 : 0);
+          }
+        }}
         accessibilityRole="button"
         accessibilityState={{ selected: current === 'moi' }}
       >
@@ -135,7 +128,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 3,
     bottom: 3,
-    left: 3,                  // align to inner content edge, same as top/bottom inset
+    left: 3,                  // align to inner content edge (matches track padding)
     borderRadius: 17,
     backgroundColor: BLUE,
     shadowColor: BLUE,
@@ -145,8 +138,11 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   slot: {
-    paddingHorizontal: 13,
-    paddingVertical: 6,
+    // Equal width for both slots so the thumb always covers exactly one side
+    // regardless of label length or language.
+    minWidth: 72,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 17,
@@ -154,8 +150,7 @@ const styles = StyleSheet.create({
   label: {
     fontSize: 13,
     fontWeight: '700',
-    paddingLeft: 8,
     textAlign: 'center',
-    textAlignVertical: 'center',
+    includeFontPadding: false,  // Android: remove extra font padding so text is truly centred
   },
 });

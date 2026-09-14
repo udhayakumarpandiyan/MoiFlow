@@ -336,9 +336,9 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   key: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',

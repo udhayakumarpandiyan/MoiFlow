@@ -4,6 +4,11 @@ import {
   TopContributor,
   TopVillage,
   RecentEntry,
+  YearToDateStats,
+  EntryBreakdown,
+  ReturnForecast,
+  VillageInsight,
+  MonthlyTrend,
 } from '../../models/Dashboard';
 import { IDashboardRepository } from '../interfaces/IDashboardRepository';
 
@@ -31,13 +36,17 @@ export class DashboardRepository implements IDashboardRepository {
     await safeAlter(`ALTER TABLE entries ADD COLUMN created_by TEXT;`);
     await safeAlter(`ALTER TABLE entries ADD COLUMN sync_status INTEGER NOT NULL DEFAULT 0;`);
 
+    const today = new Date().toISOString().split('T')[0];
+    const currentYear = new Date().getFullYear();
+    const yearStart = `${currentYear}-01-01`;
+
     // ── 1. Total entries ───────────────────────────────────────────────────
     const [countResult] = await db.executeSql(
       `SELECT COUNT(*) AS total FROM entries`,
     );
     const totalEntries = Number(countResult.rows.item(0).total) || 0;
 
-    // ── 2. Cash / Gold aggregates ──────────────────────────────────────────
+    // ── 2. Cash / Gold aggregates (all-time) ──────────────────────────────
     const [aggregateResult] = await db.executeSql(`
       SELECT
         COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_received,
@@ -83,7 +92,6 @@ export class DashboardRepository implements IDashboardRepository {
     }
 
     // ── 4. Today ──────────────────────────────────────────────────────────
-    const today = new Date().toISOString().split('T')[0];
     const [todayResult] = await db.executeSql(
       `SELECT
         COUNT(*) AS entries,
@@ -120,7 +128,7 @@ export class DashboardRepository implements IDashboardRepository {
       };
     }
 
-    // ── 6. Top village ────────────────────────────────────────────────────
+    // ── 6. Top village (single, for legacy field) ──────────────────────────
     const [topVillageResult] = await db.executeSql(`
       SELECT village_name,
              COUNT(*) AS entry_count,
@@ -212,6 +220,189 @@ export class DashboardRepository implements IDashboardRepository {
       });
     }
 
+    // ── 9. Year-to-date stats ──────────────────────────────────────────────
+    // Entries this year
+    const [ytdEntryResult] = await db.executeSql(`
+      SELECT
+        COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_in,
+        COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN gold_weight ELSE 0 END), 0) AS gold_in,
+        COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN cash_amount ELSE 0 END), 0) AS cash_out,
+        COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN gold_weight ELSE 0 END), 0) AS gold_out,
+        COUNT(DISTINCT CASE WHEN person_id IS NOT NULL THEN person_id END) AS unique_people,
+        COUNT(DISTINCT CASE WHEN village_name IS NOT NULL AND village_name != '' THEN village_name END) AS unique_villages
+      FROM entries
+      WHERE DATE(created_at) >= ?
+    `, [yearStart]);
+
+    const ytdRow = ytdEntryResult.rows.item(0);
+
+    // Events this year
+    const [ytdEventResult] = await db.executeSql(`
+      SELECT
+        COALESCE(SUM(CASE WHEN owner_type = 'MY_EVENT'     THEN 1 ELSE 0 END), 0) AS hosted,
+        COALESCE(SUM(CASE WHEN owner_type = 'OTHER_PERSON' THEN 1 ELSE 0 END), 0) AS attended
+      FROM events
+      WHERE date >= ?
+    `, [yearStart]);
+
+    const ytdEventRow = ytdEventResult.rows.item(0);
+
+    const ytd: YearToDateStats = {
+      eventsHosted:    Number(ytdEventRow.hosted)          || 0,
+      eventsAttended:  Number(ytdEventRow.attended)        || 0,
+      cashGiven:       Number(ytdRow.cash_out)             || 0,
+      goldGiven:       Number(ytdRow.gold_out)             || 0,
+      cashReceived:    Number(ytdRow.cash_in)              || 0,
+      goldReceived:    Number(ytdRow.gold_in)              || 0,
+      uniquePeople:    Number(ytdRow.unique_people)        || 0,
+      uniqueVillages:  Number(ytdRow.unique_villages)      || 0,
+    };
+
+    // ── 10. Entry breakdown: new vs settlement ────────────────────────────
+    // "New" = OWN_EVENT entries (someone giving TO me — income events).
+    // "Settlement/given" = OTHER_EVENT entries (I'm giving TO others).
+    // % split tells you what fraction of your total interaction is giving vs receiving.
+    const [breakdownResult] = await db.executeSql(`
+      SELECT
+        COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN 1 ELSE 0 END), 0) AS new_count,
+        COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN 1 ELSE 0 END), 0) AS settle_count,
+        COUNT(*) AS total
+      FROM entries
+    `);
+
+    const bdRow = breakdownResult.rows.item(0);
+    const bdTotal    = Number(bdRow.total)       || 0;
+    const bdNew      = Number(bdRow.new_count)   || 0;
+    const bdSettle   = Number(bdRow.settle_count) || 0;
+
+    const entryBreakdown: EntryBreakdown = {
+      newCount:        bdNew,
+      settlementCount: bdSettle,
+      totalCount:      bdTotal,
+      newPct:          bdTotal > 0 ? Math.round((bdNew    / bdTotal) * 100) : 0,
+      settlementPct:   bdTotal > 0 ? Math.round((bdSettle / bdTotal) * 100) : 0,
+    };
+
+    // ── 11. Return forecast ───────────────────────────────────────────────
+    // Get per-event cash received for all past MY_EVENT events.
+    const [forecastResult] = await db.executeSql(`
+      SELECT
+        e.id,
+        e.date,
+        COALESCE(SUM(CASE WHEN ent.entry_type = 'OWN_EVENT' THEN ent.cash_amount ELSE 0 END), 0) AS cash_in,
+        COALESCE(SUM(CASE WHEN ent.entry_type = 'OWN_EVENT' THEN ent.gold_weight ELSE 0 END), 0) AS gold_in,
+        STRFTIME('%m', e.date) AS event_month
+      FROM events e
+      LEFT JOIN entries ent ON ent.event_id = e.id
+      WHERE e.owner_type = 'MY_EVENT'
+        AND e.date < ?
+      GROUP BY e.id
+    `, [today]);
+
+    let totalForecastCash = 0;
+    let totalForecastGold = 0;
+    const basedOnEvents = forecastResult.rows.length;
+
+    // Seasonal weight: count how many past events fell in the current month
+    // and in month+6. Events in those months get a 1.15× lift; others 1.0×.
+    const currentMonth = new Date().getMonth() + 1; // 1–12
+    const sixMonthsAhead = ((currentMonth - 1 + 6) % 12) + 1;
+    let thisMonthEventCount = 0;
+    let sixMonthEventCount = 0;
+
+    for (let i = 0; i < forecastResult.rows.length; i++) {
+      const row = forecastResult.rows.item(i);
+      totalForecastCash += Number(row.cash_in) || 0;
+      totalForecastGold += Number(row.gold_in) || 0;
+      const em = Number(row.event_month);
+      if (em === currentMonth) thisMonthEventCount++;
+      if (em === sixMonthsAhead) sixMonthEventCount++;
+    }
+
+    const avgCashPerEvent = basedOnEvents > 0 ? totalForecastCash / basedOnEvents : 0;
+    const avgGoldPerEvent = basedOnEvents > 0 ? totalForecastGold / basedOnEvents : 0;
+
+    // Seasonal multiplier: if there are past events in that month, boost slightly
+    const thisMonthFactor = thisMonthEventCount > 0
+      ? 1 + Math.min(thisMonthEventCount / basedOnEvents, 0.25)
+      : 0.9; // slightly below avg if no seasonal data
+    const sixMonthFactor = sixMonthEventCount > 0
+      ? 1 + Math.min(sixMonthEventCount / basedOnEvents, 0.25)
+      : 0.9;
+
+    const returnForecast: ReturnForecast = {
+      avgCashPerEvent:          Math.round(avgCashPerEvent),
+      avgGoldPerEvent:          Math.round(avgGoldPerEvent * 100) / 100,
+      estimatedCashThisMonth:   Math.round(avgCashPerEvent * thisMonthFactor),
+      estimatedCashIn6Months:   Math.round(avgCashPerEvent * sixMonthFactor),
+      basedOnEvents,
+      confidence: basedOnEvents >= 10 ? 'high' : basedOnEvents >= 3 ? 'medium' : 'low',
+    };
+
+    // ── 12. Top 5 villages insight ─────────────────────────────────────────
+    const [villagesResult] = await db.executeSql(`
+      SELECT
+        village_name,
+        COUNT(*) AS entry_count,
+        COUNT(DISTINCT COALESCE(person_id, person_name)) AS person_count,
+        COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_in,
+        COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN cash_amount ELSE 0 END), 0) AS cash_out
+      FROM entries
+      WHERE village_name IS NOT NULL AND village_name != ''
+      GROUP BY village_name
+      ORDER BY entry_count DESC
+      LIMIT 5
+    `);
+
+    const topVillages: VillageInsight[] = [];
+    for (let i = 0; i < villagesResult.rows.length; i++) {
+      const row = villagesResult.rows.item(i);
+      topVillages.push({
+        villageName:  String(row.village_name),
+        entryCount:   Number(row.entry_count)  || 0,
+        cashIn:       Number(row.cash_in)       || 0,
+        cashOut:      Number(row.cash_out)      || 0,
+        personCount:  Number(row.person_count)  || 0,
+      });
+    }
+
+    // ── 13. Monthly trend (last 6 months) ─────────────────────────────────
+    // Build the 6-month window boundaries in JS so we can label them correctly
+    // without relying on SQLite date-arithmetic extensions.
+    const monthlyTrend: MonthlyTrend[] = [];
+    const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+    for (let m = 5; m >= 0; m--) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - m);
+      const yr  = d.getFullYear();
+      const mo  = d.getMonth() + 1; // 1-based
+      const moStr = mo.toString().padStart(2, '0');
+      const from = `${yr}-${moStr}-01`;
+      // Last day of the month: set to 1st of next month then back one day
+      const last = new Date(yr, mo, 0);
+      const to   = `${yr}-${moStr}-${last.getDate().toString().padStart(2, '0')}`;
+
+      const [mResult] = await db.executeSql(`
+        SELECT
+          COUNT(*) AS entry_count,
+          COALESCE(SUM(CASE WHEN entry_type = 'OWN_EVENT'   THEN cash_amount ELSE 0 END), 0) AS cash_in,
+          COALESCE(SUM(CASE WHEN entry_type = 'OTHER_EVENT' THEN cash_amount ELSE 0 END), 0) AS cash_out
+        FROM entries
+        WHERE DATE(created_at) >= ? AND DATE(created_at) <= ?
+      `, [from, to]);
+
+      const mr = mResult.rows.item(0);
+      monthlyTrend.push({
+        month: MONTH_ABBR[d.getMonth()],
+        label: `${MONTH_ABBR[d.getMonth()]} ${String(yr).slice(2)}`,
+        cashIn:     Number(mr.cash_in)      || 0,
+        cashOut:    Number(mr.cash_out)     || 0,
+        entryCount: Number(mr.entry_count)  || 0,
+      });
+    }
+
     return {
       username: '',
       upcomingEvents,
@@ -234,6 +425,12 @@ export class DashboardRepository implements IDashboardRepository {
       topContributor,
       topVillage,
       recentEntries,
+      // Analytics
+      ytd,
+      entryBreakdown,
+      returnForecast,
+      topVillages,
+      monthlyTrend,
     };
   }
 }

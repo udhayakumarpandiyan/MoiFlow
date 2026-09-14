@@ -11,7 +11,7 @@ type FeatherIconName = React.ComponentProps<typeof Feather>['name'];
 
 /** Default (Moi) icon map. Finance passes its own via the `iconMap` prop. */
 const ICON_MAP: Record<string, FeatherIconName> = {
-  DashboardStack: 'home',
+  DashboardStack: 'grid',
   EntriesStack: 'list',
   EventsStack: 'calendar',
   ReportsStack: 'bar-chart-2',

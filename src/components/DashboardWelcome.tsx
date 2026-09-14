@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
   name: {
-    fontSize: 17,
+    fontSize: 15,
     fontWeight: '700',
     marginTop: 2,
     letterSpacing: -0.3,

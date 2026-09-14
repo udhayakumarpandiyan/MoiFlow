@@ -12,6 +12,7 @@ import {
 // SafeAreaView removed - tab header handles safe area
 import { useTranslation } from 'react-i18next';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import Feather from '@react-native-vector-icons/feather';
 import { useTheme } from '../../context/ThemeContext';
@@ -30,6 +31,7 @@ const LazyVoiceSearchModal = React.lazy(() => import('./VoiceSearchModal'));
 const DashboardScreen = ({ navigation }: any) => {
   const { t } = useTranslation();
   const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
 
   const [summary, setSummary] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -210,7 +212,13 @@ const DashboardScreen = ({ navigation }: any) => {
   return (
     <View style={[styles.screen, { backgroundColor: colors.background }]}>
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          // Ensure the last item clears the floating tab bar on all devices.
+          // Bar height ≈ 70px (paddingVertical 8×2 + item 34 + label ~14) +
+          // safe-area bottom inset + 16px breathing room.
+          { paddingBottom: Math.max(insets.bottom, 8) + 86 },
+        ]}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -247,211 +255,6 @@ const DashboardScreen = ({ navigation }: any) => {
             {!isPremium && <PremiumLockIcon />}
           </TouchableOpacity>
         </View>
-
-        {/* Upcoming Events */}
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              {t('dashboard.upcomingEvents')}
-            </Text>
-
-            <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-              {t('dashboard.yourNextEvents')}
-            </Text>
-          </View>
-
-          <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('EventsStack', {
-                screen: 'PastEvents',
-              })
-            }
-          >
-            <Text style={[styles.linkText, { color: colors.pendingColor }]}>
-              {t('events.past')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        {(summary.upcomingEvents ?? []).length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-            <Text style={styles.emptyCardIcon}>
-              📅
-            </Text>
-
-            <Text style={[styles.emptyCardTitle, { color: colors.textSecondary }]}>
-              {t('dashboard.noEvents')}
-            </Text>
-
-            <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>
-              {t('dashboard.addNewEvent')}
-            </Text>
-          </View>
-        ) : (
-          <View style={styles.eventsList}>
-            {(summary.upcomingEvents ?? []).slice(0, 5).map(event => {
-              const dateParts = getDateParts(event.eventDate);
-              return (
-                <TouchableOpacity
-                  key={event.id}
-                  style={[styles.eventCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
-                  activeOpacity={0.8}
-                  onPress={() =>
-                    navigation.navigate('EventsStack')
-                  }
-                >
-                  <View style={[styles.eventDateBox, { backgroundColor: colors.primaryBg }]}>
-                    <Text style={[styles.eventDateNumber, { color: colors.primary }]}>
-                      {dateParts.day}
-                    </Text>
-
-                    <Text style={[styles.eventDateMonth, { color: colors.primaryLight }]}>
-                      {dateParts.month}
-                    </Text>
-                  </View>
-
-                  <View style={styles.eventInfo}>
-                    <Text
-                      style={[styles.eventName, { color: colors.textPrimary }]}
-                      numberOfLines={1}
-                    >
-                      {event.name}
-                    </Text>
-
-                    <Text style={[styles.eventLocation, { color: colors.textMuted }]}>
-                      📍 {event.villageName || '—'}
-                    </Text>
-                  </View>
-
-                  <Text style={[styles.chevron, { color: colors.border }]}>
-                    ›
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.secondaryButton, { borderColor: colors.primaryLight, backgroundColor: colors.primaryBg }]}
-          onPress={() =>
-            navigation.navigate('EventsStack')
-          }
-        >
-          <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>
-            {t('dashboard.newEvent')}
-          </Text>
-        </TouchableOpacity>
-
-        {/* Recent OUT Entries */}
-        <View style={[styles.sectionHeader, styles.sectionSpacing]}>
-          <View>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              {t('dashboard.recentEntries')}
-            </Text>
-            <View style={styles.subSection}>
-            <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
-              {t('dashboard.last5Entries')}
-            </Text>
-            <TouchableOpacity
-            onPress={() =>
-              navigation.navigate('EntriesStack')
-            }
-          >
-            <Text style={[styles.linkText, { color: colors.pendingColor }]}>
-              {t('dashboard.viewAll')}
-            </Text>
-          </TouchableOpacity>
-            </View>
-          </View>
-
-        </View>
-
-        {recentOutEntries.length === 0 ? (
-          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-            <Text style={styles.emptyCardIcon}>
-              📝
-            </Text>
-
-            <Text style={[styles.emptyCardTitle, { color: colors.textSecondary }]}>
-              {t('dashboard.noGivenEntries')}
-            </Text>
-
-            <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>
-              {t('dashboard.addNewEntry')}
-            </Text>
-          </View>
-        ) : (
-          <View style={[styles.entriesCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
-            {recentOutEntries.map(
-              (entry, index) => (
-                <TouchableOpacity
-                  key={entry.id}
-                  style={[
-                    styles.entryRow,
-                    { borderBottomColor: colors.borderLight },
-                    index ===
-                      recentOutEntries.length - 1 &&
-                      styles.lastEntryRow,
-                  ]}
-                  activeOpacity={0.8}
-                  onPress={() =>
-                    setSelectedEntry(entry)
-                  }
-                >
-                  <View style={[styles.avatar, { backgroundColor: colors.borderLight }]}>
-                    <Text style={[styles.avatarText, { color: colors.textSecondary }]}>
-                      {(entry.personName || '?')
-                        .charAt(0)
-                        .toUpperCase()}
-                    </Text>
-                  </View>
-
-                  <View style={styles.entryInfo}>
-                    <Text
-                      style={[styles.personName, { color: colors.textPrimary }]}
-                      numberOfLines={1}
-                    >
-                      {entry.personName}
-                    </Text>
-
-                    {!!entry.villageName && (
-                      <Text style={[styles.villageText, { color: colors.textMuted }]}>
-                        {entry.villageName}
-                      </Text>
-                    )}
-
-                    {!!entry.eventName && (
-                      <Text
-                        style={[styles.entryEvent, { color: colors.textDisabled }]}
-                        numberOfLines={1}
-                      >
-                        {entry.eventName}
-                      </Text>
-                    )}
-                  </View>
-
-                  {renderAmount(
-                    entry.cashAmount,
-                    entry.goldWeight,
-                    true,
-                  )}
-                </TouchableOpacity>
-              ),
-            )}
-          </View>
-        )}
-
-        <TouchableOpacity
-          style={[styles.primaryButton, { backgroundColor: colors.primary }]}
-          onPress={() =>
-            navigation.navigate('EntriesStack')
-          }
-        >
-          <Text style={[styles.primaryButtonText, { color: colors.textInverse }]}>
-            {t('dashboard.newEntry')}
-          </Text>
-        </TouchableOpacity>
 
         {/* Cash Summary */}
         <FadeInView delay={60}>
@@ -571,6 +374,221 @@ const DashboardScreen = ({ navigation }: any) => {
           </View>
         </FadeInView>
 
+        {/* Upcoming Events */}
+        <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              {t('dashboard.upcomingEvents')}
+            </Text>
+
+            <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+              {t('dashboard.yourNextEvents')}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            onPress={() =>
+              navigation.navigate('EventsStack', {
+                screen: 'Events',
+                params: { initialTab: 'OTHER_PERSON', initialFilter: 'PAST' },
+              })
+            }
+          >
+            <Text style={[styles.linkText, { color: colors.pendingColor }]}>
+              {t('events.past')}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {(summary.upcomingEvents ?? []).length === 0 ? (
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <Text style={styles.emptyCardIcon}>
+              📅
+            </Text>
+
+            <Text style={[styles.emptyCardTitle, { color: colors.textSecondary }]}>
+              {t('dashboard.noEvents')}
+            </Text>
+
+            <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>
+              {t('dashboard.addNewEvent')}
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.eventsList}>
+            {(summary.upcomingEvents ?? []).slice(0, 5).map(event => {
+              const dateParts = getDateParts(event.eventDate);
+              return (
+                <TouchableOpacity
+                  key={event.id}
+                  style={[styles.eventCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    navigation.navigate('EventsStack')
+                  }
+                >
+                  <View style={[styles.eventDateBox, { backgroundColor: colors.primaryBg }]}>
+                    <Text style={[styles.eventDateNumber, { color: colors.primary }]}>
+                      {dateParts.day}
+                    </Text>
+
+                    <Text style={[styles.eventDateMonth, { color: colors.primaryLight }]}>
+                      {dateParts.month}
+                    </Text>
+                  </View>
+
+                  <View style={styles.eventInfo}>
+                    <Text
+                      style={[styles.eventName, { color: colors.textPrimary }]}
+                      numberOfLines={1}
+                    >
+                      {event.name}
+                    </Text>
+
+                    <Text style={[styles.eventLocation, { color: colors.textMuted }]}>
+                      📍 {event.villageName || '—'}
+                    </Text>
+                  </View>
+
+                  <Text style={[styles.chevron, { color: colors.border }]}>
+                    ›
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[styles.secondaryButton, { borderColor: colors.primaryLight, backgroundColor: colors.primaryBg }]}
+          onPress={() =>
+            navigation.navigate('EventsStack', {
+              screen: 'Events',
+              params: { initialTab: 'OTHER_PERSON', initialFilter: 'UPCOMING' },
+            })
+          }
+        >
+          <Text style={[styles.secondaryButtonText, { color: colors.primary }]}>
+            {t('dashboard.newEvent')}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Recent OUT Entries */}
+        <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+          <View>
+            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+              {t('dashboard.recentEntries')}
+            </Text>
+            <View style={styles.subSection}>
+            <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+              {t('dashboard.last5Entries')}
+            </Text>
+            <TouchableOpacity
+            onPress={() =>
+              navigation.navigate('EntriesStack', {
+                screen: 'Entries',
+                params: { initialDirection: 'ALL' },
+              })
+            }
+          >
+            <Text style={[styles.linkText, { color: colors.pendingColor }]}>
+              {t('dashboard.viewAll')}
+            </Text>
+          </TouchableOpacity>
+            </View>
+          </View>
+
+        </View>
+
+        {recentOutEntries.length === 0 ? (
+          <View style={[styles.emptyCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <Text style={styles.emptyCardIcon}>
+              📝
+            </Text>
+
+            <Text style={[styles.emptyCardTitle, { color: colors.textSecondary }]}>
+              {t('dashboard.noGivenEntries')}
+            </Text>
+
+            <Text style={[styles.emptyCardText, { color: colors.textMuted }]}>
+              {t('dashboard.addNewEntry')}
+            </Text>
+          </View>
+        ) : (
+          <View style={[styles.entriesCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            {recentOutEntries.map(
+              (entry, index) => (
+                <TouchableOpacity
+                  key={entry.id}
+                  style={[
+                    styles.entryRow,
+                    { borderBottomColor: colors.borderLight },
+                    index ===
+                      recentOutEntries.length - 1 &&
+                      styles.lastEntryRow,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() =>
+                    setSelectedEntry(entry)
+                  }
+                >
+                  <View style={[styles.avatar, { backgroundColor: colors.borderLight }]}>
+                    <Text style={[styles.avatarText, { color: colors.textSecondary }]}>
+                      {(entry.personName || '?')
+                        .charAt(0)
+                        .toUpperCase()}
+                    </Text>
+                  </View>
+
+                  <View style={styles.entryInfo}>
+                    <Text
+                      style={[styles.personName, { color: colors.textPrimary }]}
+                      numberOfLines={1}
+                    >
+                      {entry.personName}
+                    </Text>
+
+                    {!!entry.villageName && (
+                      <Text style={[styles.villageText, { color: colors.textMuted }]}>
+                        {entry.villageName}
+                      </Text>
+                    )}
+
+                    {!!entry.eventName && (
+                      <Text
+                        style={[styles.entryEvent, { color: colors.textDisabled }]}
+                        numberOfLines={1}
+                      >
+                        {entry.eventName}
+                      </Text>
+                    )}
+                  </View>
+
+                  {renderAmount(
+                    entry.cashAmount,
+                    entry.goldWeight,
+                    true,
+                  )}
+                </TouchableOpacity>
+              ),
+            )}
+          </View>
+        )}
+
+        <TouchableOpacity
+          style={[styles.primaryButton, { backgroundColor: colors.primary }]}
+          onPress={() =>
+            navigation.navigate('EntriesStack', {
+              screen: 'Entries',
+              params: { initialDirection: 'OUT' },
+            })
+          }
+        >
+          <Text style={[styles.primaryButtonText, { color: colors.textInverse }]}>
+            {t('dashboard.newEntry')}
+          </Text>
+        </TouchableOpacity>
+
         {/* Period Summary */}
         <View style={[styles.sectionHeader, styles.sectionSpacing]}>
           <View>
@@ -659,6 +677,401 @@ const DashboardScreen = ({ navigation }: any) => {
             </View>
           </View>
         </View>
+
+        {/* ── Year-to-Date Stats ─────────────────────────────────────────── */}
+        <FadeInView delay={60}>
+          <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+            <View>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                📆 {new Date().getFullYear()} Overview
+              </Text>
+              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                Jan 1 – today
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.ytdGrid, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <View style={styles.ytdItem}>
+              <Text style={[styles.ytdValue, { color: colors.primary }]}>
+                {summary.ytd?.eventsAttended ?? 0}
+              </Text>
+              <Text style={[styles.ytdLabel, { color: colors.textMuted }]}>Events{'\n'}Attended</Text>
+            </View>
+            <View style={[styles.ytdDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={styles.ytdItem}>
+              <Text style={[styles.ytdValue, { color: colors.inColor }]}>
+                {summary.ytd?.eventsHosted ?? 0}
+              </Text>
+              <Text style={[styles.ytdLabel, { color: colors.textMuted }]}>Events{'\n'}Hosted</Text>
+            </View>
+            <View style={[styles.ytdDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={styles.ytdItem}>
+              <Text style={[styles.ytdValue, { color: colors.outColor }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatCash(summary.ytd?.cashGiven ?? 0)}
+              </Text>
+              <Text style={[styles.ytdLabel, { color: colors.textMuted }]}>Cash{'\n'}Given YTD</Text>
+            </View>
+            <View style={[styles.ytdDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={styles.ytdItem}>
+              <Text style={[styles.ytdValue, { color: colors.inColor }]} numberOfLines={1} adjustsFontSizeToFit>
+                {formatCash(summary.ytd?.cashReceived ?? 0)}
+              </Text>
+              <Text style={[styles.ytdLabel, { color: colors.textMuted }]}>Cash{'\n'}Received YTD</Text>
+            </View>
+          </View>
+
+          <View style={[styles.ytdRow2, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            <View style={styles.ytdItem2}>
+              <Feather name="users" size={16} color={colors.primary} />
+              <Text style={[styles.ytdItem2Value, { color: colors.textPrimary }]}>
+                {summary.ytd?.uniquePeople ?? 0} people
+              </Text>
+              <Text style={[styles.ytdItem2Label, { color: colors.textMuted }]}>interacted this year</Text>
+            </View>
+            <View style={[styles.ytdDivider, { backgroundColor: colors.borderLight }]} />
+            <View style={styles.ytdItem2}>
+              <Feather name="map-pin" size={16} color={colors.primary} />
+              <Text style={[styles.ytdItem2Value, { color: colors.textPrimary }]}>
+                {summary.ytd?.uniqueVillages ?? 0} villages
+              </Text>
+              <Text style={[styles.ytdItem2Label, { color: colors.textMuted }]}>covered this year</Text>
+            </View>
+          </View>
+        </FadeInView>
+
+        {/* ── Entry Breakdown: % New vs % Given ─────────────────────────── */}
+        <FadeInView delay={80}>
+          <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+            <View>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                📊 Entry Breakdown
+              </Text>
+              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                All-time receive vs give split
+              </Text>
+            </View>
+          </View>
+
+          <View style={[styles.breakdownCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+            {/* Stacked bar */}
+            <View style={styles.breakdownBarRow}>
+              {(summary.entryBreakdown?.newPct ?? 0) > 0 && (
+                <View
+                  style={[
+                    styles.breakdownBarIn,
+                    {
+                      flex: summary.entryBreakdown?.newPct ?? 0,
+                      backgroundColor: colors.inColor,
+                    },
+                  ]}
+                />
+              )}
+              {(summary.entryBreakdown?.settlementPct ?? 0) > 0 && (
+                <View
+                  style={[
+                    styles.breakdownBarOut,
+                    {
+                      flex: summary.entryBreakdown?.settlementPct ?? 0,
+                      backgroundColor: colors.outColor,
+                    },
+                  ]}
+                />
+              )}
+              {(summary.entryBreakdown?.totalCount ?? 0) === 0 && (
+                <View style={[styles.breakdownBarEmpty, { backgroundColor: colors.borderLight }]} />
+              )}
+            </View>
+
+            <View style={styles.breakdownLegend}>
+              <View style={styles.breakdownLegendItem}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.inColor }]} />
+                <View>
+                  <Text style={[styles.breakdownPct, { color: colors.inColor }]}>
+                    {summary.entryBreakdown?.newPct ?? 0}%
+                  </Text>
+                  <Text style={[styles.breakdownLegendLabel, { color: colors.textMuted }]}>
+                    Received (IN)
+                  </Text>
+                  <Text style={[styles.breakdownCount, { color: colors.textDisabled }]}>
+                    {summary.entryBreakdown?.newCount ?? 0} entries
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.breakdownLegendItem}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.outColor }]} />
+                <View>
+                  <Text style={[styles.breakdownPct, { color: colors.outColor }]}>
+                    {summary.entryBreakdown?.settlementPct ?? 0}%
+                  </Text>
+                  <Text style={[styles.breakdownLegendLabel, { color: colors.textMuted }]}>
+                    Given (OUT)
+                  </Text>
+                  <Text style={[styles.breakdownCount, { color: colors.textDisabled }]}>
+                    {summary.entryBreakdown?.settlementCount ?? 0} entries
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.breakdownLegendItem}>
+                <View style={[styles.breakdownDot, { backgroundColor: colors.primary }]} />
+                <View>
+                  <Text style={[styles.breakdownPct, { color: colors.primary }]}>
+                    {summary.entryBreakdown?.totalCount ?? 0}
+                  </Text>
+                  <Text style={[styles.breakdownLegendLabel, { color: colors.textMuted }]}>
+                    Total
+                  </Text>
+                  <Text style={[styles.breakdownCount, { color: colors.textDisabled }]}>
+                    entries
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        </FadeInView>
+
+        {/* ── Return Forecast ───────────────────────────────────────────── */}
+        <FadeInView delay={100}>
+          <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+            <View>
+              <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                🔮 Return Forecast
+              </Text>
+              <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                Estimated cash if you host an event
+              </Text>
+            </View>
+            {/* Confidence badge */}
+            <View style={[
+              styles.confidenceBadge,
+              {
+                backgroundColor:
+                  summary.returnForecast?.confidence === 'high' ? colors.inBg :
+                  summary.returnForecast?.confidence === 'medium' ? colors.pendingBg :
+                  colors.borderLight,
+              },
+            ]}>
+              <Text style={[
+                styles.confidenceText,
+                {
+                  color:
+                    summary.returnForecast?.confidence === 'high' ? colors.inColor :
+                    summary.returnForecast?.confidence === 'medium' ? colors.pendingColor :
+                    colors.textMuted,
+                },
+              ]}>
+                {summary.returnForecast?.confidence === 'high' ? '● High confidence' :
+                 summary.returnForecast?.confidence === 'medium' ? '● Medium confidence' :
+                 '● Low confidence'}
+              </Text>
+            </View>
+          </View>
+
+          {(summary.returnForecast?.basedOnEvents ?? 0) === 0 ? (
+            <View style={[styles.forecastEmpty, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              <Text style={[styles.forecastEmptyText, { color: colors.textMuted }]}>
+                Add at least one hosted event to see your return forecast.
+              </Text>
+            </View>
+          ) : (
+            <View style={[styles.forecastCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              <Text style={[styles.forecastNote, { color: colors.textMuted }]}>
+                Based on {summary.returnForecast?.basedOnEvents} past event{(summary.returnForecast?.basedOnEvents ?? 0) !== 1 ? 's' : ''} · avg {formatCash(summary.returnForecast?.avgCashPerEvent)} per event
+              </Text>
+
+              <View style={styles.forecastGrid}>
+                <View style={[styles.forecastItem, { backgroundColor: colors.inBg, borderColor: colors.inColor + '30' }]}>
+                  <Text style={[styles.forecastItemEmoji]}>📅</Text>
+                  <Text style={[styles.forecastItemLabel, { color: colors.textMuted }]}>
+                    This month
+                  </Text>
+                  <Text style={[styles.forecastItemValue, { color: colors.inColor }]}>
+                    ~{formatCash(summary.returnForecast?.estimatedCashThisMonth)}
+                  </Text>
+                  <Text style={[styles.forecastItemSub, { color: colors.textDisabled }]}>
+                    estimated cash IN
+                  </Text>
+                </View>
+
+                <View style={[styles.forecastItem, { backgroundColor: colors.primaryBg, borderColor: colors.primary + '30' }]}>
+                  <Text style={[styles.forecastItemEmoji]}>🗓️</Text>
+                  <Text style={[styles.forecastItemLabel, { color: colors.textMuted }]}>
+                    In 6 months
+                  </Text>
+                  <Text style={[styles.forecastItemValue, { color: colors.primary }]}>
+                    ~{formatCash(summary.returnForecast?.estimatedCashIn6Months)}
+                  </Text>
+                  <Text style={[styles.forecastItemSub, { color: colors.textDisabled }]}>
+                    estimated cash IN
+                  </Text>
+                </View>
+              </View>
+
+              {(summary.returnForecast?.avgGoldPerEvent ?? 0) > 0 && (
+                <Text style={[styles.forecastGoldNote, { color: colors.gold }]}>
+                  🪙 Avg gold per event: {(summary.returnForecast?.avgGoldPerEvent ?? 0).toFixed(2)} g
+                </Text>
+              )}
+            </View>
+          )}
+        </FadeInView>
+
+        {/* ── Village Insights Bar Chart ────────────────────────────────── */}
+        {(summary.topVillages?.length ?? 0) > 0 && (
+          <FadeInView delay={120}>
+            <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                  🏘️ Village Insights
+                </Text>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  Top villages by entry count
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.insightCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              {/* Legend */}
+              <View style={styles.chartLegend}>
+                <View style={styles.chartLegendItem}>
+                  <View style={[styles.chartLegendDot, { backgroundColor: colors.inColor }]} />
+                  <Text style={[styles.chartLegendText, { color: colors.textMuted }]}>Cash IN</Text>
+                </View>
+                <View style={styles.chartLegendItem}>
+                  <View style={[styles.chartLegendDot, { backgroundColor: colors.outColor }]} />
+                  <Text style={[styles.chartLegendText, { color: colors.textMuted }]}>Cash OUT</Text>
+                </View>
+              </View>
+
+              {(() => {
+                const maxCash = Math.max(
+                  ...summary.topVillages.map(v => Math.max(v.cashIn, v.cashOut)),
+                  1,
+                );
+                return summary.topVillages.map((village, idx) => (
+                  <View key={idx} style={styles.villageBarRow}>
+                    <Text
+                      style={[styles.villageBarLabel, { color: colors.textSecondary }]}
+                      numberOfLines={1}
+                    >
+                      {village.villageName}
+                    </Text>
+                    <View style={styles.villageBarTrack}>
+                      <View style={styles.villageBarGroup}>
+                        {/* Cash IN bar */}
+                        <View
+                          style={[
+                            styles.villageBarIn,
+                            {
+                              width: `${Math.round((village.cashIn / maxCash) * 100)}%`,
+                              backgroundColor: colors.inColor,
+                            },
+                          ]}
+                        />
+                        {/* Cash OUT bar */}
+                        <View
+                          style={[
+                            styles.villageBarOut,
+                            {
+                              width: `${Math.round((village.cashOut / maxCash) * 100)}%`,
+                              backgroundColor: colors.outColor,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <View style={styles.villageBarMeta}>
+                        <Text style={[styles.villageBarCount, { color: colors.textMuted }]}>
+                          {village.entryCount} entries · {village.personCount} people
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+                ));
+              })()}
+            </View>
+          </FadeInView>
+        )}
+
+        {/* ── 6-Month Cash Trend ────────────────────────────────────────── */}
+        {(summary.monthlyTrend?.length ?? 0) > 0 && (
+          <FadeInView delay={140}>
+            <View style={[styles.sectionHeader, styles.sectionSpacing]}>
+              <View>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                  📈 6-Month Trend
+                </Text>
+                <Text style={[styles.sectionSubtitle, { color: colors.textMuted }]}>
+                  Monthly cash flow
+                </Text>
+              </View>
+            </View>
+
+            <View style={[styles.insightCard, { backgroundColor: colors.surface, borderColor: colors.borderLight }]}>
+              {/* Legend */}
+              <View style={styles.chartLegend}>
+                <View style={styles.chartLegendItem}>
+                  <View style={[styles.chartLegendDot, { backgroundColor: colors.inColor }]} />
+                  <Text style={[styles.chartLegendText, { color: colors.textMuted }]}>IN</Text>
+                </View>
+                <View style={styles.chartLegendItem}>
+                  <View style={[styles.chartLegendDot, { backgroundColor: colors.outColor }]} />
+                  <Text style={[styles.chartLegendText, { color: colors.textMuted }]}>OUT</Text>
+                </View>
+              </View>
+
+              {(() => {
+                const maxVal = Math.max(
+                  ...summary.monthlyTrend.map(m => Math.max(m.cashIn, m.cashOut)),
+                  1,
+                );
+                const BAR_MAX_H = 80;
+                return (
+                  <View style={styles.trendChart}>
+                    {summary.monthlyTrend.map((mo, idx) => (
+                      <View key={idx} style={styles.trendColumn}>
+                        {/* Bars */}
+                        <View style={[styles.trendBarsArea, { height: BAR_MAX_H }]}>
+                          <View style={styles.trendBarPair}>
+                            <View
+                              style={[
+                                styles.trendBarIn,
+                                {
+                                  height: Math.max(Math.round((mo.cashIn / maxVal) * BAR_MAX_H), mo.cashIn > 0 ? 3 : 0),
+                                  backgroundColor: colors.inColor,
+                                },
+                              ]}
+                            />
+                            <View
+                              style={[
+                                styles.trendBarOut,
+                                {
+                                  height: Math.max(Math.round((mo.cashOut / maxVal) * BAR_MAX_H), mo.cashOut > 0 ? 3 : 0),
+                                  backgroundColor: colors.outColor,
+                                },
+                              ]}
+                            />
+                          </View>
+                        </View>
+                        {/* Month label */}
+                        <Text style={[styles.trendMonthLabel, { color: colors.textMuted }]}>
+                          {mo.label}
+                        </Text>
+                        {/* Entry count dot */}
+                        {mo.entryCount > 0 && (
+                          <Text style={[styles.trendEntryCount, { color: colors.textDisabled }]}>
+                            {mo.entryCount}
+                          </Text>
+                        )}
+                      </View>
+                    ))}
+                  </View>
+                );
+              })()}
+            </View>
+          </FadeInView>
+        )}
 
         <TouchableOpacity
           style={[styles.reportButton, { backgroundColor: colors.textPrimary }]}
@@ -905,7 +1318,6 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 0,
-    paddingBottom: 110,
   },
 
   titleRow: {
@@ -913,7 +1325,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: 16,
-    marginBottom: 20,
+    marginBottom: 0,
   },
 
   titleBlock: {
@@ -1640,5 +2052,294 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     textAlign: 'right',
+  },
+
+  // ── Year-to-Date ───────────────────────────────────────────────────────────
+
+  ytdGrid: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 12,
+    alignItems: 'flex-start',
+    gap: 0,
+  },
+  ytdItem: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 6,
+  },
+  ytdDivider: {
+    width: 1,
+    height: 44,
+    marginHorizontal: 4,
+    alignSelf: 'center',
+  },
+  ytdValue: {
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  ytdLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    textAlign: 'center',
+    letterSpacing: 0.2,
+  },
+  ytdRow2: {
+    flexDirection: 'row',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  ytdItem2: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  ytdItem2Value: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  ytdItem2Label: {
+    fontSize: 11,
+    fontWeight: '400',
+  },
+
+  // ── Entry Breakdown ────────────────────────────────────────────────────────
+
+  breakdownCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 12,
+  },
+  breakdownBarRow: {
+    flexDirection: 'row',
+    height: 14,
+    borderRadius: 7,
+    overflow: 'hidden',
+    marginBottom: 18,
+  },
+  breakdownBarIn: {
+    height: 14,
+  },
+  breakdownBarOut: {
+    height: 14,
+  },
+  breakdownBarEmpty: {
+    flex: 1,
+    height: 14,
+    borderRadius: 7,
+  },
+  breakdownLegend: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  breakdownLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  breakdownDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    marginTop: 4,
+  },
+  breakdownPct: {
+    fontSize: 20,
+    fontWeight: '800',
+  },
+  breakdownLegendLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  breakdownCount: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+
+  // ── Return Forecast ────────────────────────────────────────────────────────
+
+  confidenceBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  confidenceText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  forecastEmpty: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 20,
+    marginTop: 12,
+    alignItems: 'center',
+  },
+  forecastEmptyText: {
+    fontSize: 13,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  forecastCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 12,
+  },
+  forecastNote: {
+    fontSize: 11,
+    marginBottom: 14,
+    fontStyle: 'italic',
+  },
+  forecastGrid: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  forecastItem: {
+    flex: 1,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    alignItems: 'center',
+    gap: 4,
+  },
+  forecastItemEmoji: {
+    fontSize: 22,
+    marginBottom: 4,
+  },
+  forecastItemLabel: {
+    fontSize: 11,
+    fontWeight: '500',
+    textAlign: 'center',
+  },
+  forecastItemValue: {
+    fontSize: 17,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  forecastItemSub: {
+    fontSize: 10,
+    textAlign: 'center',
+  },
+  forecastGoldNote: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 12,
+    textAlign: 'center',
+  },
+
+  // ── Village & Monthly Insight Cards ───────────────────────────────────────
+
+  insightCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    marginTop: 12,
+  },
+  chartLegend: {
+    flexDirection: 'row',
+    gap: 16,
+    marginBottom: 14,
+  },
+  chartLegendItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  chartLegendDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  chartLegendText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+
+  // Village bars
+  villageBarRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+    gap: 8,
+  },
+  villageBarLabel: {
+    width: 80,
+    fontSize: 11,
+    fontWeight: '600',
+    paddingTop: 3,
+  },
+  villageBarTrack: {
+    flex: 1,
+  },
+  villageBarGroup: {
+    gap: 3,
+  },
+  villageBarIn: {
+    height: 8,
+    borderRadius: 4,
+    minWidth: 4,
+  },
+  villageBarOut: {
+    height: 8,
+    borderRadius: 4,
+    minWidth: 4,
+  },
+  villageBarMeta: {
+    marginTop: 3,
+  },
+  villageBarCount: {
+    fontSize: 10,
+  },
+
+  // Monthly trend column chart
+  trendChart: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    paddingTop: 8,
+  },
+  trendColumn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  trendBarsArea: {
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
+  trendBarPair: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 2,
+  },
+  trendBarIn: {
+    width: 8,
+    borderRadius: 3,
+    minHeight: 0,
+  },
+  trendBarOut: {
+    width: 8,
+    borderRadius: 3,
+    minHeight: 0,
+  },
+  trendMonthLabel: {
+    fontSize: 9,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  trendEntryCount: {
+    fontSize: 9,
+    textAlign: 'center',
   },
 });

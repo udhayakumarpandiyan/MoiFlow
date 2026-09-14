@@ -169,7 +169,7 @@ const SplashScreen = ({ navigation }: { navigation: NavProp }) => {
             ]}
           />
         </View>
-        <Text style={[styles.versionText, { color: colors.textDisabled }]}>v1.0.0</Text>
+        <Text style={[styles.versionText, { color: '#000000' }]}>v1.0.0</Text>
       </View>
     </GradientBackground>
   );
@@ -239,7 +239,6 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   versionText: {
-    color: '#fff',
     fontSize: 12,
     fontWeight: '500',
     letterSpacing: 0.5,
