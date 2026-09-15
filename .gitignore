@@ -1,9 +1,24 @@
-# OSX
-#
+# ============================================================================
+# MoiFlow monorepo .gitignore
+# ============================================================================
+
+# --- Node / JS (mobile + admin-portal) -------------------------------------
+node_modules/
+npm-debug.log
+yarn-error.log
+*.jsbundle
+.metro-health-check*
+/coverage
+apps/*/coverage/
+
+# Admin portal build output
+apps/admin-portal/dist/
+apps/admin-portal/.vite/
+
+# --- OSX --------------------------------------------------------------------
 .DS_Store
 
-# Xcode
-#
+# --- Xcode / iOS ------------------------------------------------------------
 build/
 *.pbxuser
 !default.pbxuser
@@ -21,10 +36,10 @@ DerivedData
 *.ipa
 *.xcuserstate
 **/.xcode.env.local
+**/Pods/
+/vendor/bundle/
 
-# Android/IntelliJ
-#
-build/
+# --- Android / IntelliJ -----------------------------------------------------
 .idea
 .gradle
 local.properties
@@ -34,57 +49,36 @@ local.properties
 *.keystore
 !debug.keystore
 .kotlin/
+apps/mobile/android/app/release-signing.properties
+apps/mobile/android/app/*.keystore
+!apps/mobile/android/app/debug.keystore
 
-# node.js
-#
-node_modules/
-npm-debug.log
-yarn-error.log
+# --- Environment variables --------------------------------------------------
+.env
+.env.local
+.env.production
+apps/api-backend/.env
+apps/admin-portal/.env
+apps/admin-portal/.env.local
 
-# fastlane
-#
-# It is recommended to not store the screenshots in the git repo. Instead, use fastlane to re-generate the
-# screenshots whenever they are needed.
-# For more information about the recommended setup visit:
-# https://docs.fastlane.tools/best-practices/source-control/
+# --- Python (api-backend) ---------------------------------------------------
+apps/api-backend/.venv/
+apps/api-backend/__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
+# --- fastlane ---------------------------------------------------------------
 **/fastlane/report.xml
 **/fastlane/Preview.html
 **/fastlane/screenshots
 **/fastlane/test_output
 
-# Bundle artifact
-*.jsbundle
-
-# Ruby / CocoaPods
-**/Pods/
-/vendor/bundle/
-
-# Temporary files created by Metro to check the health of the file watcher
-.metro-health-check*
-
-# testing
-/coverage
-
-# Yarn
+# --- Yarn -------------------------------------------------------------------
 .yarn/*
 !.yarn/patches
 !.yarn/plugins
-!.yarn/releases
 !.yarn/sdks
 !.yarn/versions
-
-# Environment variables
-.env
-.env.local
-.env.production
-src/ai-backend/.env
-
-# Release signing
-android/app/release-signing.properties
-android/app/*.keystore
-!android/app/debug.keystore
-
-# Python virtual environment (ai-backend)
-src/ai-backend/.venv/
-src/ai-backend/__pycache__/

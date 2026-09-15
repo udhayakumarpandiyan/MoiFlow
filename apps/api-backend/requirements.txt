@@ -1,0 +1,41 @@
+# Web framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Production WSGI/ASGI server
+gunicorn==22.0.0
+
+# Data validation
+pydantic==2.9.2
+email-validator==2.2.0
+
+# Environment variables
+python-dotenv==1.0.1
+
+# HTTP client (SMS providers, RevenueCat, Sarvam)
+httpx==0.27.2
+
+# Multipart form parsing (OCR file uploads)
+python-multipart==0.0.12
+
+# JWT authentication
+python-jose[cryptography]==3.3.0
+
+# Admin password hashing (used directly; maintained bcrypt library)
+bcrypt==4.2.1
+
+# Redis (production OTP store)
+redis==5.1.0
+
+# PostgreSQL (user storage)
+sqlalchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+
+# OCR — offline handwriting engine (bundles a Tamil model; no system binary).
+# This is the default engine for /api/ocr/handwritten-entries.
+easyocr==1.7.2
+
+# OCR (optional fallback — requires Tesseract binary installed on the host)
+pytesseract==0.3.13
+Pillow==11.2.1

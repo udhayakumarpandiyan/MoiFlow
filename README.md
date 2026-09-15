@@ -1,97 +1,89 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+# MoiFlow Monorepo
 
-# Getting Started
+MoiFlow is a Tamil/English, offline-first app with two clearly separated
+domains — **Moi** (events, gift entries, people, villages, reports) and
+**Finance** (credits, loans, business, transactions, settlements, reports, AI
+insights) — backed by a shared FastAPI service and a web admin portal.
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Structure
 
-## Step 1: Start Metro
-
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
-
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+```
+.
+├── apps/
+│   ├── mobile/         React Native app (Moi + Finance + common)
+│   ├── admin-portal/   Web admin portal (React + Vite) — talks to the API only
+│   └── api-backend/    FastAPI modular monolith (auth, OTP, subscriptions, AI, Moi/Finance APIs, admin)
+├── shared/             Cross-app TypeScript: types, constants, utils
+├── package.json        npm workspaces root
+└── README.md
 ```
 
-## Step 2: Build and run your app
+The mobile `src/` is organized by domain so Moi and Finance business logic stay
+separated, with shared mobile code under `common/`:
 
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
+```
+apps/mobile/src/
+├── moi/       Moi domain (events, entries, people, villages, reports)
+├── finance/   Finance domain (credits, loans, business, transactions)
+└── common/    Shared mobile code (auth, navigation, theme, i18n, db, api, di)
 ```
 
-### iOS
+## Architecture
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
-
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
+```
+Admin Portal ──┐
+               ├──> FastAPI Backend ──> PostgreSQL
+Mobile App  ───┘                    └─> (mobile also uses local offline-first SQLite)
 ```
 
-Then, and every time you update your native dependencies, run:
+- PostgreSQL is never exposed directly to the mobile app or the browser.
+- All third-party secrets (2Factor, RevenueCat, Sarvam AI) live only in the
+  backend and are read from environment variables — never shipped to clients.
+- The backend is a single modular monolith (no microservices), suited to a solo
+  developer: low cost, simple to operate, easy to scale later.
 
-```sh
-bundle exec pod install
+## Apps
+
+### `apps/mobile` — React Native
+The existing MoiFlow app. Offline-first SQLite storage, Tamil/English i18n,
+voice input, OCR, MPIN auth. Uses the RevenueCat SDK for subscription status.
+
+```bash
+npm run mobile           # start Metro
+npm run mobile:android   # run on Android
+npm run mobile:test      # jest
 ```
 
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+### `apps/api-backend` — FastAPI + PostgreSQL
+Authentication, 2Factor OTP, user + subscription management, RevenueCat webhook
+handling, Sarvam AI service layer, Moi/Finance/Admin APIs.
 
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
+```bash
+cd apps/api-backend
+python -m venv .venv && .venv\Scripts\activate   # Windows
+pip install -r requirements.txt
+copy .env.example .env                            # then fill in secrets
+alembic upgrade head
+uvicorn app.main:app --reload
 ```
 
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+### `apps/admin-portal` — React + Vite
+Dashboard, users, subscriptions, Moi/Finance overview, AI usage, OTP/activity
+monitoring, system config, audit logs. Communicates only with the FastAPI
+backend.
 
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+```bash
+npm run admin        # dev server
+npm run admin:build  # production build
+```
 
-## Step 3: Modify your app
+## Development phases
 
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+1. Monorepo structure and project separation ✅
+2. FastAPI backend + PostgreSQL + migrations
+3. Authentication + 2Factor OTP
+4. RevenueCat + Google Play subscriptions
+5. Sarvam AI integration
+6. Admin portal + dashboard
+7. Connect mobile Moi and Finance modules to backend APIs
+8. Testing, security, error handling, documentation
