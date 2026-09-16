@@ -22,7 +22,7 @@ from app.core.config import DATABASE_URL
 # Engine
 # ---------------------------------------------------------------------------
 
-database_url = settings.DATABASE_URL
+database_url = DATABASE_URL
 
 if database_url.startswith("postgresql://"):
     database_url = database_url.replace(
