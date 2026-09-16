@@ -28,6 +28,41 @@ class AdminProfile(BaseModel):
     last_login_at: Optional[str] = None
 
 
+# --- Admin-user management (superadmin only) --------------------------------
+
+VALID_ADMIN_ROLES = ("superadmin", "admin", "viewer")
+
+
+class AdminUserSummary(BaseModel):
+    """An admin account as shown in the admin-users list."""
+
+    id: str
+    email: str
+    name: str
+    role: str
+    is_active: bool
+    created_at: str
+    last_login_at: Optional[str] = None
+
+
+class CreateAdminRequest(BaseModel):
+    # Plain string for the same reason as login (reserved TLDs are valid for
+    # internal admin accounts). Uniqueness is enforced at the DB/endpoint.
+    email: str = Field(..., min_length=3, max_length=255)
+    name: str = Field(..., min_length=1, max_length=100)
+    password: str = Field(..., min_length=8, max_length=200)
+    role: str = Field(default="admin")
+
+
+class UpdateAdminRequest(BaseModel):
+    """Partial update of an admin account (any subset of fields)."""
+
+    name: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    role: Optional[str] = Field(default=None)
+    is_active: Optional[bool] = None
+    password: Optional[str] = Field(default=None, min_length=8, max_length=200)
+
+
 class SystemConfigResponse(BaseModel):
     """Non-secret operational config surfaced to the admin portal."""
 

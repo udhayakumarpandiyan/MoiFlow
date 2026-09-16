@@ -139,3 +139,28 @@ export interface SystemConfig {
 export interface MutationResult {
   success: boolean;
 }
+
+/** A back-office admin account (superadmin management view). */
+export interface AdminAccount {
+  id: string;
+  email: string;
+  name: string;
+  role: AdminRole;
+  is_active: boolean;
+  created_at: string;
+  last_login_at: string | null;
+}
+
+export interface CreateAdminInput {
+  email: string;
+  name: string;
+  password: string;
+  role: AdminRole;
+}
+
+export interface UpdateAdminInput {
+  name?: string;
+  role?: AdminRole;
+  is_active?: boolean;
+  password?: string;
+}

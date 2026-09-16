@@ -189,6 +189,49 @@ h3 {
   box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
 }
 
+.field__input--inline {
+  padding: 6px 8px;
+  font-size: 13px;
+}
+
+/* ---------- Create-admin form card ---------- */
+.form-card {
+  margin-bottom: 20px;
+  padding: 18px 20px;
+}
+
+.form-card__title {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+}
+
+.form-card__actions {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.form-msg {
+  margin: 12px 0 0;
+  font-size: 13px;
+}
+
+.form-msg--error {
+  color: var(--danger, #dc2626);
+}
+
+.form-msg--ok {
+  color: var(--primary);
+}
+
 /* ---------- Layout shell ---------- */
 .layout {
   display: flex;

@@ -35,18 +35,36 @@ from app.core.config import (
     SMS_PROVIDER,
 )
 from app.db.database import get_db
+from app.auth.security import hash_password
 from app.db.models.admin_user import AdminUser
 from app.repositories.admin_metrics_repository import AdminMetricsRepository
+from app.repositories.admin_repository import AdminRepository
 from app.repositories.user_repository import UserRepository
 from app.schemas.admin import (
     AdminLoginRequest,
     AdminLoginResponse,
     AdminProfile,
+    AdminUserSummary,
+    CreateAdminRequest,
     SystemConfigResponse,
+    UpdateAdminRequest,
+    VALID_ADMIN_ROLES,
 )
 from app.services.admin_service import authenticate_admin
 from app.services.audit_service import record_audit
 from app.services.token_service import create_admin_token
+
+
+def _admin_summary(a: AdminUser) -> AdminUserSummary:
+    return AdminUserSummary(
+        id=str(a.id),
+        email=a.email,
+        name=a.name,
+        role=a.role,
+        is_active=a.is_active,
+        created_at=a.created_at.isoformat(),
+        last_login_at=a.last_login_at.isoformat() if a.last_login_at else None,
+    )
 
 router = APIRouter()
 
@@ -199,6 +217,125 @@ async def system_config(admin: AdminUser = Depends(get_current_admin)):
             for p in plans.PLANS
         ],
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin-user management (superadmin only)
+# ---------------------------------------------------------------------------
+
+@router.get("/admins", response_model=list[AdminUserSummary])
+async def list_admins(
+    admin: AdminUser = Depends(require_role("superadmin")),
+    db: AsyncSession = Depends(get_db),
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    admins = await AdminRepository(db).list_all(limit, offset)
+    return [_admin_summary(a) for a in admins]
+
+
+@router.post("/admins", response_model=AdminUserSummary, status_code=201)
+async def create_admin(
+    request: CreateAdminRequest,
+    http_request: Request,
+    admin: AdminUser = Depends(require_role("superadmin")),
+    db: AsyncSession = Depends(get_db),
+):
+    role = request.role.lower()
+    if role not in VALID_ADMIN_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Role must be one of: {', '.join(VALID_ADMIN_ROLES)}.",
+        )
+
+    repo = AdminRepository(db)
+    if await repo.get_by_email(request.email) is not None:
+        raise HTTPException(status_code=409, detail="An admin with that email already exists.")
+
+    created = await repo.create(
+        email=request.email,
+        name=request.name.strip(),
+        password_hash=hash_password(request.password),
+        role=role,
+    )
+    await record_audit(
+        db,
+        actor_type="admin",
+        actor_id=str(admin.id),
+        action="admin.create",
+        target_type="admin",
+        target_id=str(created.id),
+        ip_address=_client_ip(http_request),
+        detail={"email": created.email, "role": created.role},
+    )
+    return _admin_summary(created)
+
+
+@router.patch("/admins/{admin_id}", response_model=AdminUserSummary)
+async def update_admin(
+    admin_id: str,
+    request: UpdateAdminRequest,
+    http_request: Request,
+    admin: AdminUser = Depends(require_role("superadmin")),
+    db: AsyncSession = Depends(get_db),
+):
+    try:
+        target_id = uuid.UUID(admin_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid admin id.")
+
+    repo = AdminRepository(db)
+    target = await repo.get_by_id(target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Admin not found.")
+
+    is_self = target.id == admin.id
+
+    # Guard against self-lockout: a superadmin cannot deactivate or demote
+    # their own account (that could leave the system with no superadmin).
+    if is_self and request.is_active is False:
+        raise HTTPException(status_code=400, detail="You cannot deactivate your own account.")
+    if is_self and request.role is not None and request.role.lower() != "superadmin":
+        raise HTTPException(status_code=400, detail="You cannot change your own role.")
+
+    changed: dict = {}
+
+    if request.name is not None:
+        await repo.set_name(target, request.name.strip())
+        changed["name"] = request.name.strip()
+
+    if request.role is not None:
+        role = request.role.lower()
+        if role not in VALID_ADMIN_ROLES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Role must be one of: {', '.join(VALID_ADMIN_ROLES)}.",
+            )
+        await repo.set_role(target, role)
+        changed["role"] = role
+
+    if request.is_active is not None:
+        await repo.set_active(target, request.is_active)
+        changed["is_active"] = request.is_active
+
+    if request.password is not None:
+        await repo.set_password(target, hash_password(request.password))
+        changed["password"] = "updated"
+
+    await db.flush()
+    await record_audit(
+        db,
+        actor_type="admin",
+        actor_id=str(admin.id),
+        action="admin.update",
+        target_type="admin",
+        target_id=admin_id,
+        ip_address=_client_ip(http_request),
+        detail=changed,
+    )
+    # Re-read the fresh row for the response.
+    refreshed = await repo.get_by_id(target_id)
+    return _admin_summary(refreshed or target)
 
 
 # ---------------------------------------------------------------------------

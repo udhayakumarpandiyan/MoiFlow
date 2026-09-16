@@ -12,6 +12,7 @@ import { AiUsagePage } from '@/pages/AiUsagePage';
 import { ActivityPage } from '@/pages/ActivityPage';
 import { AuditPage } from '@/pages/AuditPage';
 import { ConfigPage } from '@/pages/ConfigPage';
+import { AdminsPage } from '@/pages/AdminsPage';
 
 export const router = createBrowserRouter([
   {
@@ -35,6 +36,7 @@ export const router = createBrowserRouter([
       { path: 'ai-usage', element: <AiUsagePage /> },
       { path: 'activity', element: <ActivityPage /> },
       { path: 'audit', element: <AuditPage /> },
+      { path: 'admins', element: <AdminsPage /> },
       { path: 'config', element: <ConfigPage /> },
     ],
   },

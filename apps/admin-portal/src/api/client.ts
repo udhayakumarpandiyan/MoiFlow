@@ -21,6 +21,9 @@ import type {
   ActivityEntry,
   AdminProfile,
   SystemConfig,
+  AdminAccount,
+  CreateAdminInput,
+  UpdateAdminInput,
 } from './types';
 
 const API_BASE = '/api/admin';
@@ -72,7 +75,7 @@ function triggerLogout(): void {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH';
   body?: unknown;
   /** Skip attaching the Authorization header (used by login). */
   auth?: boolean;
@@ -189,5 +192,18 @@ export const api = {
 
   deactivateUser(id: string): Promise<MutationResult> {
     return request<MutationResult>(`/users/${id}/deactivate`, { method: 'POST' });
+  },
+
+  // --- Admin-user management (superadmin only) ---
+  admins(params?: ListParams): Promise<AdminAccount[]> {
+    return request<AdminAccount[]>(`/admins${listQuery(params)}`);
+  },
+
+  createAdmin(input: CreateAdminInput): Promise<AdminAccount> {
+    return request<AdminAccount>('/admins', { method: 'POST', body: input });
+  },
+
+  updateAdmin(id: string, input: UpdateAdminInput): Promise<AdminAccount> {
+    return request<AdminAccount>(`/admins/${id}`, { method: 'PATCH', body: input });
   },
 };

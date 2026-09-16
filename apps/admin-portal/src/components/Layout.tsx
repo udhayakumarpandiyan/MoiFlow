@@ -10,7 +10,12 @@ interface NavItem {
   label: string;
 }
 
-const NAV_ITEMS: NavItem[] = [
+interface NavItemDef extends NavItem {
+  /** When true, only superadmins see this entry. */
+  superadminOnly?: boolean;
+}
+
+const NAV_ITEMS: NavItemDef[] = [
   { to: '/dashboard', label: 'Dashboard' },
   { to: '/users', label: 'Users' },
   { to: '/subscriptions', label: 'Subscriptions' },
@@ -19,12 +24,16 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/ai-usage', label: 'AI Usage' },
   { to: '/activity', label: 'OTP Activity' },
   { to: '/audit', label: 'Audit Log' },
+  { to: '/admins', label: 'Admins', superadminOnly: true },
   { to: '/config', label: 'Config' },
 ];
 
 export function Layout() {
   const { admin, logout } = useAuth();
   const navigate = useNavigate();
+
+  const isSuperadmin = admin?.role === 'superadmin';
+  const navItems = NAV_ITEMS.filter((item) => !item.superadminOnly || isSuperadmin);
 
   const handleLogout = () => {
     logout();
@@ -39,7 +48,7 @@ export function Layout() {
           <span className="sidebar__brand-tag">Admin</span>
         </div>
         <nav className="sidebar__nav">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <NavLink
               key={item.to}
               to={item.to}
