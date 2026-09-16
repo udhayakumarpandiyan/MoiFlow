@@ -14,9 +14,11 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Proxy API calls to the FastAPI backend during development.
+      // DEV ONLY: proxy /api to the local backend. In production the client
+      // prepends VITE_API_URL (see src/api/client.ts + .env.production) and
+      // calls the API host directly, so this proxy is not used.
       '/api': {
-        target: process.env.VITE_API_URL || 'http://localhost:8000',
+        target: process.env.VITE_DEV_API_TARGET || 'http://localhost:8000',
         changeOrigin: true,
       },
     },

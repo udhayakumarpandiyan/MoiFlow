@@ -228,9 +228,13 @@ class RedisOTPStore(OTPStore):
 
         from app.core.config import REDIS_URL
 
+        # Short timeouts so a misconfigured/unreachable Redis fails fast with a
+        # clear error instead of hanging the OTP request for ~10s.
         self._redis = redis.Redis.from_url(
             REDIS_URL,
             decode_responses=True,
+            socket_connect_timeout=5,
+            socket_timeout=5,
         )
 
     def _key(self, phone: str) -> str:
@@ -397,11 +401,24 @@ def check_rate_limit(
 ) -> tuple[bool, str]:
     """
     Check hourly OTP send limit.
+
+    Fails OPEN on store/infrastructure errors: if the OTP store (e.g. Redis) is
+    temporarily unreachable we log loudly and ALLOW the send rather than
+    blocking a legitimate signup on a transient infra blip. This never bypasses
+    OTP verification itself — it only relaxes the per-hour send counter when the
+    counter backend is unavailable.
     """
 
     phone = normalize_phone(phone)
 
-    count = _store.get_send_count(phone)
+    try:
+        count = _store.get_send_count(phone)
+    except Exception:
+        logger.exception(
+            "[OTP] Rate-limit store unavailable; allowing send (fail-open). "
+            "Check REDIS_URL / OTP store connectivity."
+        )
+        return True, ""
 
     if count >= OTP_MAX_SEND_PER_HOUR:
         return (
@@ -482,11 +499,23 @@ async def send_otp_sms(
                 "Failed to send OTP. Please try again.",
             )
 
-        # Store only after successful SMS submission.
-        store_otp(
-            phone,
-            otp,
-        )
+        # Store only after successful SMS submission. If the store (Redis) is
+        # down we cannot later verify this OTP, so treat it as a failure with a
+        # clear, distinct log — the SMS provider is NOT the problem here.
+        try:
+            store_otp(
+                phone,
+                otp,
+            )
+        except Exception:
+            logger.exception(
+                "[OTP] OTP store write failed after SMS send. The code was "
+                "delivered but cannot be verified. Check REDIS_URL / OTP store."
+            )
+            return (
+                False,
+                "Verification is temporarily unavailable. Please try again.",
+            )
 
         return True, ""
 

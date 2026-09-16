@@ -56,27 +56,35 @@ const RegistrationScreen: React.FC<Props> = ({ navigation }) => {
         return;
       }
 
-      // Try to send OTP via the backend. If the backend is unreachable
-      // (offline / server not running), fall back to local-only registration
-      // so the offline-first app remains fully functional without network.
+      // OTP verification is mandatory: send the OTP via the backend and move
+      // to the verification screen. We do NOT silently bypass OTP when the
+      // backend is unreachable — instead we surface a clear error so the user
+      // can retry once they have connectivity. This guarantees every account
+      // is phone-verified.
+      let response;
       try {
-        const response = await sendOTP(phone.trim(), name.trim());
-        if (!response.success) {
-          Alert.alert(t('common.error'), response.message);
-          setSaving(false);
-          return;
-        }
-
-        // Backend is available — use OTP verification flow
-        navigation.replace('OTPVerification', {
-          phone: phone.trim(),
-          name: name.trim(),
-        });
+        response = await sendOTP(phone.trim(), name.trim());
       } catch {
-        // Backend unreachable — complete registration locally (offline-first)
-        await authService.completeRegistration(name.trim(), phone.trim());
-        navigation.replace('SecuritySetup');
+        // Network / server unreachable — tell the user, keep them on the form.
+        Alert.alert(
+          t('auth.otp.unreachableTitle'),
+          t('auth.otp.unreachableMsg'),
+        );
+        setSaving(false);
+        return;
       }
+
+      if (!response.success) {
+        Alert.alert(t('common.error'), response.message);
+        setSaving(false);
+        return;
+      }
+
+      // OTP sent — proceed to the verification screen.
+      navigation.replace('OTPVerification', {
+        phone: phone.trim(),
+        name: name.trim(),
+      });
     } catch {
       Alert.alert(t('common.error'), t('auth.registration.failed'));
     } finally {

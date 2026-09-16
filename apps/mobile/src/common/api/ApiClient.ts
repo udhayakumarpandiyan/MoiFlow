@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const API_BASE_URL = __DEV__
-  ? 'http://192.168.0.5:8000'
-  : 'https://api.moiflow.app'; // Production URL placeholder
+// const API_BASE_URL = __DEV__
+//   ? 'http://192.168.0.5:8000'
+//   : 'https://api.moiflow.in'; // Production API base URL
+
+const API_BASE_URL = 'https://api.moiflow.in'; // Production API base URL
 
 const AUTH_TOKEN_KEY = 'auth.session_token';
 

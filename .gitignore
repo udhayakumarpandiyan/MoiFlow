@@ -60,6 +60,9 @@ apps/mobile/android/app/*.keystore
 apps/api-backend/.env
 apps/admin-portal/.env
 apps/admin-portal/.env.local
+# The admin portal's production API origin is a public, non-secret build value
+# and is intentionally tracked so production builds are reproducible.
+!apps/admin-portal/.env.production
 
 # --- Python (api-backend) ---------------------------------------------------
 apps/api-backend/.venv/

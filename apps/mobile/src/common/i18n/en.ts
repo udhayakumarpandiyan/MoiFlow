@@ -415,6 +415,8 @@ const en = {
       resend:     'Resend OTP',
       verify:     'Verify',
       invalidOtp: 'Invalid OTP. Please try again.',
+      unreachableTitle: 'Cannot send OTP',
+      unreachableMsg:   'We could not reach the server to send your verification code. Please check your internet connection and try again.',
     },
     security: {
       title:         'Set Up Security',

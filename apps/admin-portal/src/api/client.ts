@@ -26,7 +26,13 @@ import type {
   UpdateAdminInput,
 } from './types';
 
-const API_BASE = '/api/admin';
+// Base origin for the backend API.
+//  - Dev: left empty so requests hit `/api/...` and the Vite proxy forwards
+//    them to the local backend (see vite.config.ts).
+//  - Production: set VITE_API_URL (e.g. https://api.moiflow.in) at build time
+//    so the browser calls the API host directly.
+const API_ORIGIN = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+const API_BASE = `${API_ORIGIN}/api/admin`;
 
 export const TOKEN_KEY = 'moiflow_admin_token';
 export const NAME_KEY = 'moiflow_admin_name';
