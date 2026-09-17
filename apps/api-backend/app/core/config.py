@@ -255,40 +255,14 @@ else:
 # ---------------------------------------------------------------------------
 # CORS
 # ---------------------------------------------------------------------------
-# CORS_ALLOWED_ORIGINS is a comma-separated list of exact origins, e.g.
-#   https://admin.moiflow.in,https://admin2.moiflow.in
-# Use "*" to allow all origins (wildcard). Values are sanitised so accidental
-# inline "# comments", surrounding whitespace, or trailing slashes do not break
-# the browser preflight — a common cause of "CORS error" on login.
 
-_default_cors_origins = "https://admin.moiflow.in","http://localhost:3000,http://localhost:5173"
+_default_cors_origins = "https://admin.moiflow.in,http://localhost:3000,http://localhost:5173"
 
-
-def _parse_cors_origins(raw: str) -> list[str]:
-    origins: list[str] = []
-    for part in raw.split(","):
-        # Drop anything after a '#' so an inline comment can't become a bogus
-        # origin (e.g. "* #https://x" -> "*").
-        cleaned = part.split("#", 1)[0].strip()
-        if not cleaned:
-            continue
-        # Normalise a trailing slash — the browser Origin header never has one,
-        # and "https://x/" would silently fail to match "https://x".
-        if cleaned != "*":
-            cleaned = cleaned.rstrip("/")
-        origins.append(cleaned)
-    return origins
-
-
-CORS_ALLOWED_ORIGINS = _parse_cors_origins(
-    os.getenv("CORS_ALLOWED_ORIGINS", _default_cors_origins)
-)
-
-# When "*" is requested we must NOT also send Access-Control-Allow-Credentials:
-# true (the browser rejects that combination). This flag lets main.py configure
-# the middleware correctly.
-CORS_ALLOW_ALL = "*" in CORS_ALLOWED_ORIGINS
-CORS_ALLOW_CREDENTIALS = not CORS_ALLOW_ALL
+CORS_ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CORS_ALLOWED_ORIGINS", _default_cors_origins).split(",")
+    if origin.strip()
+]
 
 
 # ---------------------------------------------------------------------------

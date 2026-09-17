@@ -23,6 +23,7 @@ from app.api.finance import router as finance_router
 from app.core.config import (
     APP_NAME,
     APP_VERSION,
+    CORS_ALLOW_ALL,
     CORS_ALLOW_CREDENTIALS,
     CORS_ALLOWED_ORIGINS,
     IS_PRODUCTION,
@@ -141,7 +142,12 @@ _cors_kwargs = dict(
     allow_credentials=CORS_ALLOW_CREDENTIALS,
 )
 
-app.add_middleware(
+if CORS_ALLOW_ALL:
+    # Wildcard: allow any origin. Credentials are disabled (browsers reject
+    # "*" + allow-credentials), which CORS_ALLOW_CREDENTIALS already reflects.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], **_cors_kwargs)
+else:
+    app.add_middleware(
         CORSMiddleware, allow_origins=CORS_ALLOWED_ORIGINS, **_cors_kwargs
     )
 
