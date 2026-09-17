@@ -23,8 +23,6 @@ from app.api.finance import router as finance_router
 from app.core.config import (
     APP_NAME,
     APP_VERSION,
-    CORS_ALLOW_ALL,
-    CORS_ALLOW_CREDENTIALS,
     CORS_ALLOWED_ORIGINS,
     IS_PRODUCTION,
     validate_production_config,
@@ -98,6 +96,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 # ---------------------------------------------------------------------------
 # Security headers
@@ -130,28 +135,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(SecurityHeadersMiddleware)
-
-
-# ---------------------------------------------------------------------------
-# CORS  (added LAST so it is the OUTERMOST middleware — see note above)
-# ---------------------------------------------------------------------------
-
-_cors_kwargs = dict(
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-    allow_credentials=CORS_ALLOW_CREDENTIALS,
-)
-
-if CORS_ALLOW_ALL:
-    # Wildcard: allow any origin. Credentials are disabled (browsers reject
-    # "*" + allow-credentials), which CORS_ALLOW_CREDENTIALS already reflects.
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], **_cors_kwargs)
-else:
-    app.add_middleware(
-        CORSMiddleware, allow_origins=CORS_ALLOWED_ORIGINS, **_cors_kwargs
-    )
-
-logger.info("CORS allowed origins: %s", CORS_ALLOWED_ORIGINS)
 
 
 # ---------------------------------------------------------------------------
