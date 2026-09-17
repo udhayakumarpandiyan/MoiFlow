@@ -71,6 +71,16 @@ class TwoFactorClient:
             return False, "SMS provider returned an unexpected response."
 
         if str(data.get("Status", "")).lower() == "success":
+            # NOTE: a "Success" here means 2Factor ACCEPTED the request, not
+            # that the SMS was delivered. Actual delivery depends on DLT
+            # template/sender approval for the route used. We log the session
+            # id and whether a custom template was used so undelivered-but-
+            # accepted sends are diagnosable.
+            logger.info(
+                "[2Factor] accepted OTP send (session=%s, template=%s)",
+                data.get("Details"),
+                self._template_name or "<default-approved>",
+            )
             return True, "OTP sent."
 
         logger.warning("2Factor non-success: %s", data)

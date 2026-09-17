@@ -25,6 +25,7 @@ import type { IEntryRepository } from '@moi/repository/interfaces/IEntryReposito
 import type { IPersonRepository } from '@moi/repository/interfaces/IPersonRepository';
 import type { IBillingService } from './IBillingService';
 import {
+  FORCE_ALL_FEATURES_UNLOCKED,
   FREE_LIMITS,
   LimitKind,
   PremiumFeature,
@@ -139,6 +140,11 @@ export class EntitlementService {
   }
 
   private computeIsPremium(state: EntitlementState): boolean {
+    // TEMPORARY master switch: treat everyone as premium while all features
+    // are unlocked. Flip FORCE_ALL_FEATURES_UNLOCKED back to false to restore
+    // the real derivation below.
+    if (FORCE_ALL_FEATURES_UNLOCKED) return true;
+
     // Premium is derived: the state must claim premium AND, if an expiry is
     // known, it must still be in the future. An unknown/unparseable expiry on a
     // premium state is treated as premium (don't punish the user for a missing

@@ -7,7 +7,7 @@ import {
 import { useTranslation } from 'react-i18next';
 import { useTheme } from '@common/context/ThemeContext';
 import { authService } from '@common/services/AuthService';
-import { sendOTP } from '@common/api/AuthApi';
+import { sendOTP, OTP_VERIFICATION_ENABLED } from '@common/api/AuthApi';
 
 interface Props {
   navigation: { replace: (screen: string, params?: Record<string, unknown>) => void };
@@ -53,6 +53,15 @@ const RegistrationScreen: React.FC<Props> = ({ navigation }) => {
           }),
         );
         setSaving(false);
+        return;
+      }
+
+      // TEMPORARY: OTP verification is disabled. Complete registration locally
+      // and go straight to security setup, skipping the OTP screen entirely.
+      // Re-enable by setting OTP_VERIFICATION_ENABLED = true in AuthApi.
+      if (!OTP_VERIFICATION_ENABLED) {
+        await authService.completeRegistration(name.trim(), phone.trim());
+        navigation.replace('SecuritySetup');
         return;
       }
 

@@ -13,6 +13,17 @@
  */
 
 // ---------------------------------------------------------------------------
+// TEMPORARY: unlock all premium features
+// ---------------------------------------------------------------------------
+// When true, EntitlementService treats every user as premium: all premium
+// features are usable and all Free usage limits are lifted. This is a single
+// master switch for the current "everything unlocked" phase.
+//
+// TO RE-ENABLE PREMIUM GATING: set this back to `false`. No other code needs
+// to change — the real derivation logic in EntitlementService is preserved.
+export const FORCE_ALL_FEATURES_UNLOCKED = true;
+
+// ---------------------------------------------------------------------------
 // Google Play product IDs (must match Play Console exactly)
 // ---------------------------------------------------------------------------
 

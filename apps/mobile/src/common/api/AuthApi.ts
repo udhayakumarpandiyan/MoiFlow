@@ -1,5 +1,14 @@
 import { apiRequest } from './ApiClient';
 
+/**
+ * TEMPORARY: master switch for OTP phone verification during registration.
+ *
+ * When false, the Registration flow skips the send-OTP / OTP-verification
+ * screen and completes registration locally. Set back to `true` to re-enable
+ * mandatory phone verification — no other code needs to change.
+ */
+export const OTP_VERIFICATION_ENABLED = false;
+
 export interface SendOTPRequest {
   phone: string;
   name: string;
