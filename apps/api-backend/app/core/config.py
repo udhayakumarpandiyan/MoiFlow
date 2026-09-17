@@ -261,7 +261,7 @@ else:
 # inline "# comments", surrounding whitespace, or trailing slashes do not break
 # the browser preflight — a common cause of "CORS error" on login.
 
-_default_cors_origins = "http://localhost:3000,http://localhost:5173"
+_default_cors_origins = "https://admin.moiflow.in","http://localhost:3000,http://localhost:5173"
 
 
 def _parse_cors_origins(raw: str) -> list[str]:
