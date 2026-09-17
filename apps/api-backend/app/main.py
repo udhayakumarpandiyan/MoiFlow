@@ -23,6 +23,8 @@ from app.api.finance import router as finance_router
 from app.core.config import (
     APP_NAME,
     APP_VERSION,
+    CORS_ALLOW_ALL,
+    CORS_ALLOW_CREDENTIALS,
     CORS_ALLOWED_ORIGINS,
     IS_PRODUCTION,
     validate_production_config,
@@ -98,21 +100,15 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
-# CORS
-# ---------------------------------------------------------------------------
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=CORS_ALLOWED_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-
-
-# ---------------------------------------------------------------------------
 # Security headers
 # ---------------------------------------------------------------------------
+# NOTE ON MIDDLEWARE ORDER: Starlette applies middleware in REVERSE of the order
+# they are added (last added = outermost). We add SecurityHeaders FIRST and CORS
+# LAST so that CORSMiddleware is the OUTERMOST layer. This guarantees the
+# Access-Control-Allow-Origin header is attached to EVERY response — including
+# error responses (401/500) and preflight — which is essential for the browser
+# to accept them. A custom BaseHTTPMiddleware wrapping CORS can otherwise strip
+# CORS headers on error paths.
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add conservative security headers to every response."""
@@ -134,6 +130,28 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+# ---------------------------------------------------------------------------
+# CORS  (added LAST so it is the OUTERMOST middleware — see note above)
+# ---------------------------------------------------------------------------
+
+_cors_kwargs = dict(
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=CORS_ALLOW_CREDENTIALS,
+)
+
+if CORS_ALLOW_ALL:
+    # Wildcard: allow any origin. Credentials are disabled (browsers reject
+    # "*" + allow-credentials), which CORS_ALLOW_CREDENTIALS already reflects.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], **_cors_kwargs)
+else:
+    app.add_middleware(
+        CORSMiddleware, allow_origins=CORS_ALLOWED_ORIGINS, **_cors_kwargs
+    )
+
+logger.info("CORS allowed origins: %s", CORS_ALLOWED_ORIGINS)
 
 
 # ---------------------------------------------------------------------------
